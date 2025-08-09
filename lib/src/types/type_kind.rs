@@ -29,7 +29,7 @@ pub enum TypeKind {
 }
 
 impl TypeKind {
-    pub fn new(ty: clang::Type) -> Result<Self, ParseError> {
+    pub fn new(env: &Env, types: &Types, ty: clang::Type) -> Result<Self, ParseError> {
         match ty.get_kind() {
             clang::TypeKind::ULong => Ok(TypeKind::USize),
             clang::TypeKind::Long => Ok(TypeKind::SSize),
@@ -49,7 +49,7 @@ impl TypeKind {
                         "Pointer type without pointee type: {ty:?}"
                     ))
                 })?;
-                let inner_type = TypeKind::new(pointee_type)?;
+                let inner_type = TypeKind::new(env, types, pointee_type)?;
                 Ok(TypeKind::Pointer(Box::new(inner_type)))
             }
             clang::TypeKind::IncompleteArray => {
@@ -58,7 +58,7 @@ impl TypeKind {
                         "IncompleteArray type without element type: {ty:?}"
                     ))
                 })?;
-                let inner_type = TypeKind::new(element_type)?;
+                let inner_type = TypeKind::new(env, types, element_type)?;
                 Ok(TypeKind::Array { element_type: Box::new(inner_type), size: None })
             }
             clang::TypeKind::ConstantArray => {
@@ -70,7 +70,7 @@ impl TypeKind {
                 let size = ty.get_size().ok_or_else(|| {
                     ParseError::UnsupportedType(format!("ConstantArray without size: {ty:?}"))
                 })?;
-                let inner_type = TypeKind::new(element_type)?;
+                let inner_type = TypeKind::new(env, types, element_type)?;
                 Ok(TypeKind::Array { element_type: Box::new(inner_type), size: Some(size) })
             }
             clang::TypeKind::FunctionPrototype => {
@@ -84,9 +84,11 @@ impl TypeKind {
                         "FunctionPrototype without parameters: {ty:?}"
                     ))
                 })?;
-                let return_type = TypeKind::new(return_type)?;
-                let parameters =
-                    parameters.into_iter().map(TypeKind::new).collect::<Result<Vec<_>, _>>()?;
+                let return_type = TypeKind::new(env, types, return_type)?;
+                let parameters = parameters
+                    .into_iter()
+                    .map(|param| TypeKind::new(env, types, param))
+                    .collect::<Result<Vec<_>, _>>()?;
                 Ok(TypeKind::Function { return_type: Box::new(return_type), parameters })
             }
             clang::TypeKind::Elaborated => {
@@ -97,6 +99,28 @@ impl TypeKind {
                 match name.as_str() {
                     "bool" => Ok(TypeKind::Bool), // "bool" not defined in C
                     _ => Ok(TypeKind::Named(name)),
+                }
+            }
+            clang::TypeKind::Record => {
+                let node = ty.get_declaration().ok_or_else(|| {
+                    ParseError::UnsupportedType(format!("Record type without declaration: {ty:?}"))
+                })?;
+                match node.get_kind() {
+                    clang::EntityKind::StructDecl | clang::EntityKind::ClassDecl => {
+                        let struct_decl = StructDecl::new(env, types, None, ty)?;
+                        Ok(TypeKind::Struct(struct_decl))
+                    }
+                    clang::EntityKind::UnionDecl => {
+                        let union_decl = UnionDecl::new(env, types, None, ty)?;
+                        Ok(TypeKind::Union(union_decl))
+                    }
+                    _ => Err(ParseError::UnsupportedEntity {
+                        at: "struct/union".to_string(),
+                        message: format!(
+                            "Unsupported entity kind in record: {:?}",
+                            node.get_kind()
+                        ),
+                    }),
                 }
             }
             _ => {

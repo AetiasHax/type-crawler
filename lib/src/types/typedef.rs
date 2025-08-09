@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{error::ParseError, types::TypeKind};
+use crate::{Env, Types, error::ParseError, types::TypeKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Typedef {
@@ -11,10 +11,15 @@ pub struct Typedef {
 }
 
 impl Typedef {
-    pub fn new(name: String, underlying_type: clang::Type) -> Result<Self, ParseError> {
+    pub fn new(
+        env: &Env,
+        types: &Types,
+        name: String,
+        underlying_type: clang::Type,
+    ) -> Result<Self, ParseError> {
         Ok(Typedef {
             name,
-            underlying_type: TypeKind::new(underlying_type)?,
+            underlying_type: TypeKind::new(env, types, underlying_type)?,
             constant: underlying_type.is_const_qualified(),
             volatile: underlying_type.is_volatile_qualified(),
         })

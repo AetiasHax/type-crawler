@@ -89,7 +89,7 @@ impl TypeDecl {
             TypeDecl::Typedef(typedef) => Some(&typedef.name),
             TypeDecl::Enum(enum_decl) => Some(&enum_decl.name),
             TypeDecl::Struct(struct_decl) => struct_decl.name.as_ref(),
-            TypeDecl::Union(union_decl) => Some(&union_decl.name),
+            TypeDecl::Union(union_decl) => union_decl.name.as_ref(),
         }
     }
 

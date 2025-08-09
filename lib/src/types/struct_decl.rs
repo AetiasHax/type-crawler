@@ -19,99 +19,80 @@ impl StructDecl {
     pub fn new(
         env: &Env,
         types: &Types,
-        name: String,
-        node: &clang::Entity,
+        name: Option<String>,
+        ty: clang::Type,
     ) -> Result<Self, ParseError> {
-        if !matches!(node.get_kind(), clang::EntityKind::StructDecl | clang::EntityKind::ClassDecl)
-        {
-            return Err(ParseError::InvalidAst(format!(
-                "Expected StructDecl or ClassDecl, found: {node:?}"
-            )));
+        if ty.get_kind() != clang::TypeKind::Record {
+            return Err(ParseError::InvalidAst(format!("Expected Record, found: {ty:?}")));
         }
 
-        let mut fields = Vec::<StructField>::new();
         let mut base_types = Vec::new();
-        for child in node.get_children() {
-            match child.get_kind() {
-                clang::EntityKind::FieldDecl => {
-                    let field_name = child.get_name().ok_or_else(|| {
-                        ParseError::InvalidAst(format!("Field without name: {child:?}"))
-                    })?;
-                    let field_type = child.get_type().ok_or_else(|| {
-                        ParseError::InvalidAst(format!("Field without type: {child:?}"))
-                    })?;
-                    let offset = Self::get_offset_of_field(&name, &child)?;
-                    let kind = TypeKind::new(field_type)?;
-                    fields.push(StructField { offset, field: Field::new(field_name, kind) });
+        if let Some(node) = ty.get_declaration() {
+            for child in node.get_children() {
+                if child.get_kind() != clang::EntityKind::BaseSpecifier {
+                    continue;
                 }
-                clang::EntityKind::StructDecl | clang::EntityKind::ClassDecl => {
-                    if child.get_children().is_empty() {
-                        // Forward declaration, skip
-                        continue;
-                    }
-                    let field_name = child.get_name().ok_or_else(|| {
-                        ParseError::InvalidAst(format!(
-                            "StructDecl or ClassDecl without name: {child:?}"
-                        ))
-                    })?;
-                    let field_type = child.get_type().ok_or_else(|| {
-                        ParseError::InvalidAst(format!(
-                            "StructDecl or ClassDecl without type: {child:?}"
-                        ))
-                    })?;
-                    let offset = Self::get_offset_of_field(&name, &child).or_else(
-                        |_| -> Result<usize, ParseError> {
-                            if fields.is_empty() {
-                                return Ok(0);
-                            }
-                            let last_field = fields.last().unwrap();
-                            let align = field_type.get_alignof().map_err(|e| {
-                                ParseError::InvalidAst(format!(
-                                    "Failed to get alignment of field type in {name}: {e}"
-                                ))
-                            })?;
+                let base_type = child.get_type().ok_or_else(|| {
+                    ParseError::InvalidAst(format!("BaseSpecifier without type: {child:?}"))
+                })?;
+                let base_name = base_type.get_display_name();
+                base_types.push(base_name);
+            }
+        }
 
-                            let last_field_size =
-                                last_field.field.kind().size(env, types).ok_or_else(|| {
-                                    ParseError::InvalidAst(format!(
-                                        "Field other than the last field in {name} has no size: {last_field:?}"
-                                    ))
-                                })?;
-                            let offset = (last_field.offset + last_field_size).next_multiple_of(align);
-                            Ok(offset)
-                        },
-                    )?;
-                    let kind = TypeKind::new(field_type)?;
+        let display_name = name.as_deref().unwrap_or("<anon>");
+
+        let mut fields = Vec::<StructField>::new();
+        let record_fields = ty.get_fields().ok_or_else(|| {
+            ParseError::UnsupportedType(format!("Record type without fields: {ty:?}"))
+        })?;
+        for field in record_fields {
+            match field.get_kind() {
+                clang::EntityKind::FieldDecl => {
+                    let anonymous = if let Some(child) = field.get_child(0) {
+                        child.is_anonymous()
+                    } else {
+                        false
+                    };
+
+                    let field_name = if anonymous {
+                        None
+                    } else {
+                        let name = field.get_name().ok_or_else(|| {
+                            ParseError::InvalidAst(format!("FieldDecl without name: {field:?}"))
+                        })?;
+                        Some(name)
+                    };
+                    let field_type = field.get_type().ok_or_else(|| {
+                        ParseError::InvalidAst(format!("Field without type: {field:?}"))
+                    })?;
+                    let offset = Self::get_offset_of_field(display_name, &field)?;
+                    let kind = TypeKind::new(env, types, field_type)?;
                     fields.push(StructField { offset, field: Field::new(field_name, kind) });
                 }
                 clang::EntityKind::UnionDecl => {
                     // TODO: Handle unions
                 }
                 clang::EntityKind::BaseSpecifier => {
-                    let base_type = child.get_type().ok_or_else(|| {
-                        ParseError::InvalidAst(format!("BaseSpecifier without type: {child:?}"))
+                    let base_type = field.get_type().ok_or_else(|| {
+                        ParseError::InvalidAst(format!("BaseSpecifier without type: {field:?}"))
                     })?;
                     let base_name = base_type.get_display_name();
                     base_types.push(base_name);
                 }
-                clang::EntityKind::Method => {}
-                clang::EntityKind::Destructor => {}
-                clang::EntityKind::Constructor => {}
-                clang::EntityKind::AccessSpecifier => {}
-                clang::EntityKind::VarDecl => {}
                 _ => {
                     return Err(ParseError::UnsupportedEntity {
-                        at: format!("struct/class {name}"),
+                        at: format!("struct/class {display_name}"),
                         message: format!(
                             "Unsupported entity kind in struct/class: {:?}",
-                            child.get_kind()
+                            field.get_kind()
                         ),
                     });
                 }
             }
         }
 
-        Ok(Self { name: Some(name), base_types, fields })
+        Ok(Self { name, base_types, fields })
     }
 
     fn get_offset_of_field(struct_name: &str, node: &clang::Entity) -> Result<usize, ParseError> {
@@ -173,13 +154,8 @@ impl Display for StructDecl {
         }
         writeln!(f, " {{")?;
         for field in &self.fields {
-            writeln!(
-                f,
-                "  {} @ {:#x}: {:x?}",
-                field.field.name(),
-                field.offset_bytes(),
-                field.field.kind()
-            )?;
+            let name = field.field.name().unwrap_or("<anon>");
+            writeln!(f, "  {} @ {:#x}: {:x?}", name, field.offset_bytes(), field.field.kind())?;
         }
         write!(f, "}}")?;
         Ok(())

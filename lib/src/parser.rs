@@ -37,7 +37,7 @@ impl Parser {
                 let name = node.get_name().ok_or_else(|| {
                     ParseError::InvalidAst(format!("TypedefDecl without name: {node:?}"))
                 })?;
-                let typedef = Typedef::new(name, underlying_type)?;
+                let typedef = Typedef::new(env, &self.types, name, underlying_type)?;
                 self.types.add_type(TypeDecl::Typedef(typedef));
             }
             clang::EntityKind::EnumDecl => {
@@ -51,7 +51,10 @@ impl Parser {
                 let name = node.get_name().ok_or_else(|| {
                     ParseError::InvalidAst(format!("StructDecl without name: {node:?}"))
                 })?;
-                let struct_decl = StructDecl::new(env, &self.types, name, node)?;
+                let ty = node.get_type().ok_or_else(|| {
+                    ParseError::InvalidAst(format!("StructDecl without type: {node:?}"))
+                })?;
+                let struct_decl = StructDecl::new(env, &self.types, Some(name), ty)?;
                 self.types.add_type(TypeDecl::Struct(struct_decl));
             }
             clang::EntityKind::Namespace => {
@@ -67,7 +70,10 @@ impl Parser {
                 let name = node.get_name().ok_or_else(|| {
                     ParseError::InvalidAst(format!("UnionDecl without name: {node:?}"))
                 })?;
-                let union_decl = UnionDecl::new(name, node)?;
+                let ty = node.get_type().ok_or_else(|| {
+                    ParseError::InvalidAst(format!("UnionDecl without type: {node:?}"))
+                })?;
+                let union_decl = UnionDecl::new(env, &self.types, Some(name), ty)?;
                 self.types.add_type(TypeDecl::Union(union_decl));
             }
 
