@@ -1,14 +1,25 @@
 pub struct Env {
     word_size: WordSize,
+    short_enums: bool,
+}
+
+pub struct EnvOptions {
+    pub word_size: WordSize,
+    pub short_enums: bool,
 }
 
 impl Env {
-    pub fn new(word_size: WordSize) -> Self {
-        Env { word_size }
+    pub fn new(options: EnvOptions) -> Self {
+        let EnvOptions { word_size, short_enums } = options;
+        Env { word_size, short_enums }
     }
 
     pub fn word_size(&self) -> &WordSize {
         &self.word_size
+    }
+
+    pub fn short_enums_clang_arg(&self) -> &'static str {
+        if self.short_enums { "-fshort-enums" } else { "-fno-short-enums" }
     }
 }
 

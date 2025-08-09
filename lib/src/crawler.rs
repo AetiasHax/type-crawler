@@ -41,31 +41,46 @@ impl TypeCrawler {
         Ok(())
     }
 
+    fn arguments(&self) -> Vec<String> {
+        self.include_paths
+            .iter()
+            .map(|p| format!("-I{}", p.display()))
+            .chain([
+                self.env.word_size().clang_arg().to_string(),
+                self.env.short_enums_clang_arg().to_string(),
+            ])
+            .collect()
+    }
+
     pub fn parse_file<P: AsRef<Path>>(&self, file_path: P) -> Result<Types, ParseError> {
         let path = file_path.as_ref();
         if !path.exists() {
             return Err(ParseError::FileNotFound(path.display().to_string()));
         }
 
-        let arguments = self
-            .include_paths
-            .iter()
-            .map(|p| format!("-I{}", p.display()))
-            .chain([self.env.word_size().clang_arg().to_string()])
-            .collect::<Vec<_>>();
-
         let index = clang::Index::new(&self.clang, false, false);
         let mut parser = index.parser(path);
-        parser.arguments(&arguments);
+        parser.arguments(&self.arguments());
         let unit = parser.parse()?;
 
         let root = unit.get_entity();
-        Self::display_ast(&root, 0, false);
 
         let mut context = Parser::new();
         context.parse(&self.env, &root)?;
 
         Ok(context.into_types())
+    }
+
+    pub fn print_file_ast<P: AsRef<Path>>(&self, file_path: P) -> Result<(), ParseError> {
+        let path = file_path.as_ref();
+        let index = clang::Index::new(&self.clang, false, false);
+        let mut parser = index.parser(path);
+        parser.arguments(&self.arguments());
+        let unit = parser.parse()?;
+
+        let root = unit.get_entity();
+        Self::display_ast(&root, 0, false);
+        Ok(())
     }
 
     fn display_ast(entity: &clang::Entity, indent: usize, argument: bool) {

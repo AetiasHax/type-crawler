@@ -70,16 +70,6 @@ impl StructDecl {
                     let kind = TypeKind::new(env, types, field_type)?;
                     fields.push(StructField { offset, field: Field::new(field_name, kind) });
                 }
-                clang::EntityKind::UnionDecl => {
-                    // TODO: Handle unions
-                }
-                clang::EntityKind::BaseSpecifier => {
-                    let base_type = field.get_type().ok_or_else(|| {
-                        ParseError::InvalidAst(format!("BaseSpecifier without type: {field:?}"))
-                    })?;
-                    let base_name = base_type.get_display_name();
-                    base_types.push(base_name);
-                }
                 _ => {
                     return Err(ParseError::UnsupportedEntity {
                         at: format!("struct/class {display_name}"),

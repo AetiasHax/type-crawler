@@ -6,6 +6,7 @@ use crate::error::ParseError;
 pub struct EnumDecl {
     pub(crate) name: String,
     constants: Vec<EnumConstant>,
+    size: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,6 +20,11 @@ impl EnumDecl {
         if node.get_kind() != clang::EntityKind::EnumDecl {
             return Err(ParseError::InvalidAst(format!("Expected EnumDecl, found: {node:?}")));
         }
+
+        let underlying_type = node.get_enum_underlying_type().ok_or_else(|| {
+            ParseError::InvalidAst(format!("EnumDecl without underlying type: {node:?}"))
+        })?;
+        let size = underlying_type.get_sizeof()?;
 
         let mut constants = Vec::new();
         for child in node.get_children() {
@@ -36,13 +42,21 @@ impl EnumDecl {
             constants.push(EnumConstant { name, value });
         }
 
-        Ok(EnumDecl { name, constants })
+        Ok(EnumDecl { name, constants, size })
+    }
+
+    pub fn size(&self) -> usize {
+        self.size
+    }
+
+    pub fn alignment(&self) -> usize {
+        self.size
     }
 }
 
 impl Display for EnumDecl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{} {{ ", self.name)?;
+        writeln!(f, "{} (size={}) {{ ", self.name, self.size)?;
         for constant in &self.constants {
             writeln!(f, "  {}: {:#x}", constant.name, constant.value)?;
         }

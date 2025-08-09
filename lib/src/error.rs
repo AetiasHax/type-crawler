@@ -30,4 +30,6 @@ pub enum ParseError {
     UnsupportedEntity { at: String, message: String },
     #[error("Failed to get field offset of {field_name} in {struct_name}: {error}")]
     Offsetof { field_name: String, struct_name: String, error: clang::OffsetofError },
+    #[error("Failed to get size of type: {0}")]
+    Sizeof(#[from] clang::SizeofError),
 }

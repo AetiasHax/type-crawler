@@ -105,7 +105,7 @@ impl TypeDecl {
     pub fn size(&self, env: &Env, types: &Types) -> Option<usize> {
         match self {
             TypeDecl::Typedef(typedef) => typedef.underlying_type().size(env, types),
-            TypeDecl::Enum(_enum_decl) => Some(4), // TODO: Handle enum size properly
+            TypeDecl::Enum(enum_decl) => Some(enum_decl.size()),
             TypeDecl::Struct(struct_decl) => struct_decl.size(env, types),
             TypeDecl::Union(union_decl) => union_decl.size(env, types),
         }
@@ -114,7 +114,7 @@ impl TypeDecl {
     pub fn alignment(&self, env: &Env, types: &Types) -> Option<usize> {
         match self {
             TypeDecl::Typedef(typedef) => typedef.underlying_type().alignment(env, types),
-            TypeDecl::Enum(_enum_decl) => Some(4), // TODO: Handle enum alignment properly
+            TypeDecl::Enum(enum_decl) => Some(enum_decl.alignment()),
             TypeDecl::Struct(struct_decl) => struct_decl.alignment(env, types),
             TypeDecl::Union(union_decl) => union_decl.alignment(env, types),
         }
