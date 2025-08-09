@@ -4,8 +4,8 @@ use crate::TypeKind;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Field {
-    name: String,
-    kind: TypeKind,
+    pub name: String,
+    pub kind: TypeKind,
 }
 
 impl Field {

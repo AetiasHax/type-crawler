@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{error::ParseError, types::TypeDecl};
+use crate::error::ParseError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnumDecl {
@@ -37,12 +37,6 @@ impl EnumDecl {
         }
 
         Ok(EnumDecl { name, constants })
-    }
-}
-
-impl TypeDecl for EnumDecl {
-    fn is_forward_decl(&self) -> bool {
-        false
     }
 }
 

@@ -1,4 +1,4 @@
-use crate::{EnumDecl, StructDecl, Typedef, Types, UnionDecl, error::ParseError};
+use crate::{EnumDecl, Env, StructDecl, TypeDecl, Typedef, Types, UnionDecl, error::ParseError};
 
 pub struct Parser {
     types: Types,
@@ -13,16 +13,16 @@ impl Parser {
         self.types
     }
 
-    fn parse_children(&mut self, node: &clang::Entity) -> Result<(), ParseError> {
+    fn parse_children(&mut self, env: &Env, node: &clang::Entity) -> Result<(), ParseError> {
         for child in node.get_children() {
-            self.parse(&child)?;
+            self.parse(env, &child)?;
         }
         Ok(())
     }
 
-    pub(crate) fn parse(&mut self, node: &clang::Entity) -> Result<(), ParseError> {
+    pub(crate) fn parse(&mut self, env: &Env, node: &clang::Entity) -> Result<(), ParseError> {
         match node.get_kind() {
-            clang::EntityKind::NotImplemented => self.parse_children(node)?,
+            clang::EntityKind::NotImplemented => self.parse_children(env, node)?,
             // typedef <underlying_type> <name>;
             clang::EntityKind::TypedefDecl => {
                 if let Some(child) = node.get_child(0)
@@ -38,27 +38,27 @@ impl Parser {
                     ParseError::InvalidAst(format!("TypedefDecl without name: {node:?}"))
                 })?;
                 let typedef = Typedef::new(name, underlying_type)?;
-                self.types.add_typedef(typedef);
+                self.types.add_type(TypeDecl::Typedef(typedef));
             }
             clang::EntityKind::EnumDecl => {
                 let name = node.get_name().ok_or_else(|| {
                     ParseError::InvalidAst(format!("EnumDecl without name: {node:?}"))
                 })?;
                 let enum_decl = EnumDecl::new(name, node)?;
-                self.types.add_enum(enum_decl);
+                self.types.add_type(TypeDecl::Enum(enum_decl));
             }
             clang::EntityKind::StructDecl | clang::EntityKind::ClassDecl => {
                 let name = node.get_name().ok_or_else(|| {
                     ParseError::InvalidAst(format!("StructDecl without name: {node:?}"))
                 })?;
-                let struct_decl = StructDecl::new(name, node)?;
-                self.types.add_struct(struct_decl);
+                let struct_decl = StructDecl::new(env, &self.types, name, node)?;
+                self.types.add_type(TypeDecl::Struct(struct_decl));
             }
             clang::EntityKind::Namespace => {
-                self.parse_children(node)?;
+                self.parse_children(env, node)?;
             }
             clang::EntityKind::LinkageSpec => {
-                self.parse_children(node)?;
+                self.parse_children(env, node)?;
             }
             clang::EntityKind::ClassTemplate => {
                 // TODO: Handle template classes
@@ -68,7 +68,7 @@ impl Parser {
                     ParseError::InvalidAst(format!("UnionDecl without name: {node:?}"))
                 })?;
                 let union_decl = UnionDecl::new(name, node)?;
-                self.types.add_union(union_decl);
+                self.types.add_type(TypeDecl::Union(union_decl));
             }
 
             clang::EntityKind::FunctionDecl => {}

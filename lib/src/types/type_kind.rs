@@ -1,6 +1,6 @@
-use crate::error::ParseError;
+use crate::{Env, StructDecl, Types, UnionDecl, error::ParseError};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeKind {
     USize,
     SSize,
@@ -23,6 +23,8 @@ pub enum TypeKind {
         return_type: Box<TypeKind>,
         parameters: Vec<TypeKind>,
     },
+    Struct(StructDecl),
+    Union(UnionDecl),
     Named(String),
 }
 
@@ -101,5 +103,50 @@ impl TypeKind {
                 panic!("Unsupported type: {:?} for name: {}", ty.get_kind(), ty.get_display_name())
             }
         }
+    }
+
+    pub fn size(&self, env: &Env, types: &Types) -> Option<usize> {
+        Some(match self {
+            TypeKind::USize | TypeKind::SSize => env.word_size().bits() / 8,
+            TypeKind::U64 | TypeKind::S64 => 8,
+            TypeKind::U32 | TypeKind::S32 => 4,
+            TypeKind::U16 | TypeKind::S16 => 2,
+            TypeKind::U8 | TypeKind::S8 => 1,
+            TypeKind::Bool => 1,
+            TypeKind::Void => return None,
+            TypeKind::Pointer(_) => env.word_size().bits() / 8,
+            TypeKind::Array { element_type, size } => {
+                if let Some(size) = size {
+                    let stride = element_type
+                        .size(env, types)?
+                        .next_multiple_of(element_type.alignment(env, types)?);
+                    size * stride
+                } else {
+                    return None;
+                }
+            }
+            TypeKind::Function { .. } => return None,
+            TypeKind::Struct(struct_decl) => struct_decl.size(env, types)?,
+            TypeKind::Union(union_decl) => union_decl.size(env, types)?,
+            TypeKind::Named(name) => types.get(name)?.size(env, types)?,
+        })
+    }
+
+    pub fn alignment(&self, env: &Env, types: &Types) -> Option<usize> {
+        Some(match self {
+            TypeKind::USize | TypeKind::SSize => env.word_size().bits() / 8,
+            TypeKind::U64 | TypeKind::S64 => 8,
+            TypeKind::U32 | TypeKind::S32 => 4,
+            TypeKind::U16 | TypeKind::S16 => 2,
+            TypeKind::U8 | TypeKind::S8 => 1,
+            TypeKind::Bool => 1,
+            TypeKind::Void => return None,
+            TypeKind::Pointer(_) => env.word_size().bits() / 8,
+            TypeKind::Array { element_type, .. } => element_type.alignment(env, types)?,
+            TypeKind::Function { .. } => return None,
+            TypeKind::Struct(struct_decl) => struct_decl.alignment(env, types)?,
+            TypeKind::Union(union_decl) => union_decl.alignment(env, types)?,
+            TypeKind::Named(name) => types.get(name)?.alignment(env, types)?,
+        })
     }
 }

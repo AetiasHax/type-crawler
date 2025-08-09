@@ -5,6 +5,8 @@ mod type_kind;
 mod typedef;
 mod union_decl;
 
+use std::fmt::Display;
+
 use indexmap::IndexMap;
 use thiserror::Error;
 
@@ -15,24 +17,17 @@ pub use type_kind::TypeKind;
 pub use typedef::Typedef;
 pub use union_decl::UnionDecl;
 
+use crate::Env;
+
 #[derive(Default)]
 pub struct Types {
-    typedefs: IndexMap<String, Typedef>,
-    enums: IndexMap<String, EnumDecl>,
-    structs: IndexMap<String, StructDecl>,
-    unions: IndexMap<String, UnionDecl>,
+    types: IndexMap<String, TypeDecl>,
 }
 
 #[derive(Error, Debug)]
 pub enum ExtendTypesError {
-    #[error("Typedefs with the same name but different underlying types: {0} and {1}")]
-    ConflictingTypedefs(Box<Typedef>, Box<Typedef>),
-    #[error("Enums with the same name but different definitions: {0} and {1}")]
-    ConflictingEnums(Box<EnumDecl>, Box<EnumDecl>),
-    #[error("Structs with the same name but different definitions: {0} and {1}")]
-    ConflictingStructs(Box<StructDecl>, Box<StructDecl>),
-    #[error("Unions with the same name but different definitions: {0} and {1}")]
-    ConflictingUnions(Box<UnionDecl>, Box<UnionDecl>),
+    #[error("Type with the same name but different definitions: {0} and {1}")]
+    ConflictingTypes(Box<TypeDecl>, Box<TypeDecl>),
 }
 
 impl Types {
@@ -40,55 +35,35 @@ impl Types {
         Default::default()
     }
 
-    pub fn add_typedef(&mut self, typedef: Typedef) {
-        self.typedefs.insert(typedef.name.clone(), typedef);
+    pub fn add_type(&mut self, type_decl: TypeDecl) -> bool {
+        if let Some(name) = type_decl.name() {
+            self.types.insert(name.clone(), type_decl);
+            true
+        } else {
+            false
+        }
     }
 
-    pub fn typedefs(&self) -> impl Iterator<Item = &Typedef> {
-        self.typedefs.values()
+    pub fn types(&self) -> impl Iterator<Item = &TypeDecl> {
+        self.types.values()
     }
 
-    pub fn add_enum(&mut self, enum_decl: EnumDecl) {
-        self.enums.insert(enum_decl.name.clone(), enum_decl);
+    pub fn get(&self, name: &str) -> Option<&TypeDecl> {
+        self.types.get(name)
     }
 
-    pub fn enums(&self) -> impl Iterator<Item = &EnumDecl> {
-        self.enums.values()
-    }
-
-    pub fn add_struct(&mut self, struct_decl: StructDecl) {
-        self.structs.insert(struct_decl.name.clone(), struct_decl);
-    }
-
-    pub fn structs(&self) -> impl Iterator<Item = &StructDecl> {
-        self.structs.values()
-    }
-
-    pub fn add_union(&mut self, union_decl: UnionDecl) {
-        self.unions.insert(union_decl.name.clone(), union_decl);
-    }
-
-    pub fn unions(&self) -> impl Iterator<Item = &UnionDecl> {
-        self.unions.values()
-    }
-
-    fn extend_map<V, ErrCb>(
-        map: &mut IndexMap<String, V>,
-        other: IndexMap<String, V>,
-        err_cb: ErrCb,
-    ) -> Result<(), ExtendTypesError>
-    where
-        V: PartialEq + Clone + TypeDecl,
-        ErrCb: Fn(Box<V>, Box<V>) -> ExtendTypesError,
-    {
-        for (name, value) in other {
-            match map.entry(name.clone()) {
+    pub fn extend(&mut self, other: Types) -> Result<(), ExtendTypesError> {
+        for (name, value) in other.types {
+            match self.types.entry(name.clone()) {
                 indexmap::map::Entry::Occupied(mut entry) => {
                     let current = entry.get();
                     if current.is_forward_decl() {
                         entry.insert(value);
                     } else if !value.is_forward_decl() && current != &value {
-                        return Err(err_cb(Box::new(current.clone()), Box::new(value)));
+                        return Err(ExtendTypesError::ConflictingTypes(
+                            Box::new(current.clone()),
+                            Box::new(value),
+                        ));
                     }
                 }
                 indexmap::map::Entry::Vacant(entry) => {
@@ -98,20 +73,61 @@ impl Types {
         }
         Ok(())
     }
+}
 
-    pub fn extend(&mut self, other: Types) -> Result<(), ExtendTypesError> {
-        Self::extend_map(
-            &mut self.typedefs,
-            other.typedefs,
-            ExtendTypesError::ConflictingTypedefs,
-        )?;
-        Self::extend_map(&mut self.enums, other.enums, ExtendTypesError::ConflictingEnums)?;
-        Self::extend_map(&mut self.structs, other.structs, ExtendTypesError::ConflictingStructs)?;
-        Self::extend_map(&mut self.unions, other.unions, ExtendTypesError::ConflictingUnions)?;
-        Ok(())
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TypeDecl {
+    Typedef(Typedef),
+    Enum(EnumDecl),
+    Struct(StructDecl),
+    Union(UnionDecl),
+}
+
+impl TypeDecl {
+    pub fn name(&self) -> Option<&String> {
+        match self {
+            TypeDecl::Typedef(typedef) => Some(&typedef.name),
+            TypeDecl::Enum(enum_decl) => Some(&enum_decl.name),
+            TypeDecl::Struct(struct_decl) => struct_decl.name.as_ref(),
+            TypeDecl::Union(union_decl) => Some(&union_decl.name),
+        }
+    }
+
+    pub fn is_forward_decl(&self) -> bool {
+        match self {
+            TypeDecl::Typedef(_typedef) => false,
+            TypeDecl::Enum(_enum_decl) => false,
+            TypeDecl::Struct(struct_decl) => struct_decl.is_forward_decl(),
+            TypeDecl::Union(_union_decl) => false,
+        }
+    }
+
+    pub fn size(&self, env: &Env, types: &Types) -> Option<usize> {
+        match self {
+            TypeDecl::Typedef(typedef) => typedef.underlying_type().size(env, types),
+            TypeDecl::Enum(_enum_decl) => Some(4), // TODO: Handle enum size properly
+            TypeDecl::Struct(struct_decl) => struct_decl.size(env, types),
+            TypeDecl::Union(union_decl) => union_decl.size(env, types),
+        }
+    }
+
+    pub fn alignment(&self, env: &Env, types: &Types) -> Option<usize> {
+        match self {
+            TypeDecl::Typedef(typedef) => typedef.underlying_type().alignment(env, types),
+            TypeDecl::Enum(_enum_decl) => Some(4), // TODO: Handle enum alignment properly
+            TypeDecl::Struct(struct_decl) => struct_decl.alignment(env, types),
+            TypeDecl::Union(union_decl) => union_decl.alignment(env, types),
+        }
     }
 }
 
-trait TypeDecl {
-    fn is_forward_decl(&self) -> bool;
+impl Display for TypeDecl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TypeDecl::Typedef(typedef) => write!(f, "Typedef: {typedef}"),
+            TypeDecl::Enum(enum_decl) => write!(f, "Enum: {enum_decl}"),
+            TypeDecl::Struct(struct_decl) => write!(f, "Struct: {struct_decl}"),
+            TypeDecl::Union(union_decl) => write!(f, "Union: {union_decl}"),
+        }
+    }
 }

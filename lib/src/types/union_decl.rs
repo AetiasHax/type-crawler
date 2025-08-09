@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{Field, TypeKind, error::ParseError, types::TypeDecl};
+use crate::{Env, Field, TypeKind, Types, error::ParseError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnionDecl {
@@ -41,11 +41,23 @@ impl UnionDecl {
 
         Ok(UnionDecl { name, fields })
     }
-}
 
-impl TypeDecl for UnionDecl {
-    fn is_forward_decl(&self) -> bool {
-        false
+    pub fn size(&self, env: &Env, types: &Types) -> Option<usize> {
+        let mut size = 0;
+        for field in &self.fields {
+            let field_size = field.kind().size(env, types)?;
+            size = size.max(field_size);
+        }
+        Some(size)
+    }
+
+    pub fn alignment(&self, env: &Env, types: &Types) -> Option<usize> {
+        let mut alignment = 1;
+        for field in &self.fields {
+            let field_alignment = field.kind().alignment(env, types)?;
+            alignment = alignment.max(field_alignment);
+        }
+        Some(alignment)
     }
 }
 

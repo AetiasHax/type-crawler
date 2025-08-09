@@ -1,11 +1,8 @@
 use std::fmt::Display;
 
-use crate::{
-    error::ParseError,
-    types::{TypeDecl, TypeKind},
-};
+use crate::{error::ParseError, types::TypeKind};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Typedef {
     pub(crate) name: String,
     underlying_type: TypeKind,
@@ -22,11 +19,9 @@ impl Typedef {
             volatile: underlying_type.is_volatile_qualified(),
         })
     }
-}
 
-impl TypeDecl for Typedef {
-    fn is_forward_decl(&self) -> bool {
-        false
+    pub fn underlying_type(&self) -> &TypeKind {
+        &self.underlying_type
     }
 }
 

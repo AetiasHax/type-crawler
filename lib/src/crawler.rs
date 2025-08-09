@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use clang::Clang;
 
 use crate::{
+    Env,
     error::{AddIncludePathError, ParseError, TypeCrawlerError},
     parser::Parser,
     types::Types,
@@ -11,17 +12,17 @@ use crate::{
 pub struct TypeCrawler {
     clang: Clang,
     include_paths: Vec<PathBuf>,
-    word_size: WordSize,
+    env: Env,
 }
 
 impl TypeCrawler {
-    pub fn new() -> Result<Self, TypeCrawlerError> {
+    pub fn new(env: Env) -> Result<Self, TypeCrawlerError> {
         let clang = Clang::new().map_err(TypeCrawlerError::ClangInit)?;
-        Ok(Self::from_clang(clang))
+        Ok(Self::from_clang(clang, env))
     }
 
-    pub fn from_clang(clang: Clang) -> Self {
-        TypeCrawler { clang, include_paths: Vec::new(), word_size: WordSize::Size64 }
+    pub fn from_clang(clang: Clang, env: Env) -> Self {
+        TypeCrawler { clang, include_paths: Vec::new(), env }
     }
 
     pub fn add_include_path<P: AsRef<Path>>(&mut self, path: P) -> Result<(), AddIncludePathError> {
@@ -40,10 +41,6 @@ impl TypeCrawler {
         Ok(())
     }
 
-    pub fn set_word_size(&mut self, word_size: WordSize) {
-        self.word_size = word_size;
-    }
-
     pub fn parse_file<P: AsRef<Path>>(&self, file_path: P) -> Result<Types, ParseError> {
         let path = file_path.as_ref();
         if !path.exists() {
@@ -54,9 +51,8 @@ impl TypeCrawler {
             .include_paths
             .iter()
             .map(|p| format!("-I{}", p.display()))
-            .chain([self.word_size.clang_arg().to_string()])
+            .chain([self.env.word_size().clang_arg().to_string()])
             .collect::<Vec<_>>();
-        println!("{:?}", arguments);
 
         let index = clang::Index::new(&self.clang, false, false);
         let mut parser = index.parser(path);
@@ -67,7 +63,7 @@ impl TypeCrawler {
         Self::display_ast(&root, 0, false);
 
         let mut context = Parser::new();
-        context.parse(&root)?;
+        context.parse(&self.env, &root)?;
 
         Ok(context.into_types())
     }
@@ -104,22 +100,6 @@ impl TypeCrawler {
         }
         if !argument {
             println!();
-        }
-    }
-}
-
-pub enum WordSize {
-    Size16,
-    Size32,
-    Size64,
-}
-
-impl WordSize {
-    pub fn clang_arg(&self) -> &'static str {
-        match self {
-            WordSize::Size16 => "-m16",
-            WordSize::Size32 => "-m32",
-            WordSize::Size64 => "-m64",
         }
     }
 }
