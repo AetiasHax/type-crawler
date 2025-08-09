@@ -48,6 +48,10 @@ impl Types {
         self.types.values()
     }
 
+    pub fn len(&self) -> usize {
+        self.types.len()
+    }
+
     pub fn get(&self, name: &str) -> Option<&TypeDecl> {
         self.types.get(name)
     }
