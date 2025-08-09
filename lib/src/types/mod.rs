@@ -1,21 +1,26 @@
 mod enum_decl;
+mod field;
 mod struct_decl;
 mod type_kind;
 mod typedef;
+mod union_decl;
 
 use indexmap::IndexMap;
 use thiserror::Error;
 
 pub use enum_decl::{EnumConstant, EnumDecl};
+pub use field::Field;
 pub use struct_decl::{StructDecl, StructField};
 pub use type_kind::TypeKind;
 pub use typedef::Typedef;
+pub use union_decl::UnionDecl;
 
 #[derive(Default)]
 pub struct Types {
     typedefs: IndexMap<String, Typedef>,
     enums: IndexMap<String, EnumDecl>,
     structs: IndexMap<String, StructDecl>,
+    unions: IndexMap<String, UnionDecl>,
 }
 
 #[derive(Error, Debug)]
@@ -26,6 +31,8 @@ pub enum ExtendTypesError {
     ConflictingEnums(Box<EnumDecl>, Box<EnumDecl>),
     #[error("Structs with the same name but different definitions: {0} and {1}")]
     ConflictingStructs(Box<StructDecl>, Box<StructDecl>),
+    #[error("Unions with the same name but different definitions: {0} and {1}")]
+    ConflictingUnions(Box<UnionDecl>, Box<UnionDecl>),
 }
 
 impl Types {
@@ -55,6 +62,14 @@ impl Types {
 
     pub fn structs(&self) -> impl Iterator<Item = &StructDecl> {
         self.structs.values()
+    }
+
+    pub fn add_union(&mut self, union_decl: UnionDecl) {
+        self.unions.insert(union_decl.name.clone(), union_decl);
+    }
+
+    pub fn unions(&self) -> impl Iterator<Item = &UnionDecl> {
+        self.unions.values()
     }
 
     fn extend_map<V, ErrCb>(
@@ -92,6 +107,7 @@ impl Types {
         )?;
         Self::extend_map(&mut self.enums, other.enums, ExtendTypesError::ConflictingEnums)?;
         Self::extend_map(&mut self.structs, other.structs, ExtendTypesError::ConflictingStructs)?;
+        Self::extend_map(&mut self.unions, other.unions, ExtendTypesError::ConflictingUnions)?;
         Ok(())
     }
 }

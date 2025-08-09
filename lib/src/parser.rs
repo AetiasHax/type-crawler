@@ -1,4 +1,4 @@
-use crate::{EnumDecl, StructDecl, Typedef, Types, error::ParseError};
+use crate::{EnumDecl, StructDecl, Typedef, Types, UnionDecl, error::ParseError};
 
 pub struct Parser {
     types: Types,
@@ -62,6 +62,13 @@ impl Parser {
             }
             clang::EntityKind::ClassTemplate => {
                 // TODO: Handle template classes
+            }
+            clang::EntityKind::UnionDecl => {
+                let name = node.get_name().ok_or_else(|| {
+                    ParseError::InvalidAst(format!("UnionDecl without name: {node:?}"))
+                })?;
+                let union_decl = UnionDecl::new(name, node)?;
+                self.types.add_union(union_decl);
             }
 
             clang::EntityKind::FunctionDecl => {}

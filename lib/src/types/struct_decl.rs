@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{TypeKind, error::ParseError, types::TypeDecl};
+use crate::{Field, TypeKind, error::ParseError, types::TypeDecl};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StructDecl {
@@ -11,9 +11,8 @@ pub struct StructDecl {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StructField {
-    name: String,
     offset: usize,
-    kind: TypeKind,
+    field: Field,
 }
 
 impl StructDecl {
@@ -38,12 +37,11 @@ impl StructDecl {
                         struct_name: name.clone(),
                         error: e,
                     })?;
-                    // let offset = child.get_offset_of_field().ok().unwrap_or(usize::MAX);
                     let field_type = child.get_type().ok_or_else(|| {
                         ParseError::InvalidAst(format!("FieldDecl without type: {child:?}"))
                     })?;
                     let kind = TypeKind::new(field_type)?;
-                    fields.push(StructField { name: field_name, offset, kind });
+                    fields.push(StructField { offset, field: Field::new(field_name, kind) });
                 }
                 clang::EntityKind::StructDecl | clang::EntityKind::ClassDecl => {
                     // TODO: Handle nested structs/classes
@@ -67,7 +65,7 @@ impl StructDecl {
                     return Err(ParseError::UnsupportedEntity {
                         at: format!("struct/class {name}"),
                         message: format!(
-                            "Unsupported child kind in struct/class: {:?}",
+                            "Unsupported entity kind in struct/class: {:?}",
                             child.get_kind()
                         ),
                     });
@@ -75,7 +73,7 @@ impl StructDecl {
             }
         }
 
-        Ok(StructDecl { name, base_types, fields })
+        Ok(Self { name, base_types, fields })
     }
 }
 
@@ -104,7 +102,13 @@ impl Display for StructDecl {
         }
         writeln!(f, " {{")?;
         for field in &self.fields {
-            writeln!(f, "  {} @ {:#x}: {:x?}", field.name, field.offset_bytes(), field.kind)?;
+            writeln!(
+                f,
+                "  {} @ {:#x}: {:x?}",
+                field.field.name(),
+                field.offset_bytes(),
+                field.field.kind()
+            )?;
         }
         write!(f, "}}")?;
         Ok(())
