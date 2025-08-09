@@ -1,16 +1,25 @@
 use std::fmt::Display;
 
-use crate::{Env, Field, TypeKind, Types, error::ParseError};
+use crate::{
+    Env, Field, TypeKind, Types,
+    error::{
+        AlignofSnafu, InvalidAstSnafu, OffsetofSnafu, ParseError, SizeofSnafu,
+        UnsupportedEntitySnafu, UnsupportedTypeSnafu,
+    },
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StructDecl {
     pub(crate) name: Option<String>,
     pub(crate) base_types: Vec<String>,
     pub(crate) fields: Vec<StructField>,
+    size: usize,
+    alignment: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StructField {
+    /// Offset in bits
     pub offset: usize,
     pub field: Field,
 }
@@ -23,7 +32,7 @@ impl StructDecl {
         ty: clang::Type,
     ) -> Result<Self, ParseError> {
         if ty.get_kind() != clang::TypeKind::Record {
-            return Err(ParseError::InvalidAst(format!("Expected Record, found: {ty:?}")));
+            return InvalidAstSnafu { message: format!("Expected Record, found: {ty:?}") }.fail();
         }
 
         let mut base_types = Vec::new();
@@ -33,7 +42,8 @@ impl StructDecl {
                     continue;
                 }
                 let base_type = child.get_type().ok_or_else(|| {
-                    ParseError::InvalidAst(format!("BaseSpecifier without type: {child:?}"))
+                    InvalidAstSnafu { message: format!("BaseSpecifier without type: {child:?}") }
+                        .build()
                 })?;
                 let base_name = base_type.get_display_name();
                 base_types.push(base_name);
@@ -44,9 +54,9 @@ impl StructDecl {
 
         let mut fields = Vec::<StructField>::new();
         let record_fields = ty.get_fields().ok_or_else(|| {
-            ParseError::UnsupportedType(format!("Record type without fields: {ty:?}"))
+            UnsupportedTypeSnafu { message: format!("Record type without fields: {ty:?}") }.build()
         })?;
-        for field in record_fields {
+        for field in &record_fields {
             match field.get_kind() {
                 clang::EntityKind::FieldDecl => {
                     let anonymous = if let Some(child) = field.get_child(0) {
@@ -59,69 +69,81 @@ impl StructDecl {
                         None
                     } else {
                         let name = field.get_name().ok_or_else(|| {
-                            ParseError::InvalidAst(format!("FieldDecl without name: {field:?}"))
+                            InvalidAstSnafu {
+                                message: format!("FieldDecl without name: {field:?}"),
+                            }
+                            .build()
                         })?;
                         Some(name)
                     };
                     let field_type = field.get_type().ok_or_else(|| {
-                        ParseError::InvalidAst(format!("Field without type: {field:?}"))
+                        InvalidAstSnafu { message: format!("Field without type: {field:?}") }
+                            .build()
                     })?;
-                    let offset = Self::get_offset_of_field(display_name, &field)?;
+                    let offset = Self::get_offset_of_field(display_name, field)?;
                     let kind = TypeKind::new(env, types, field_type)?;
                     fields.push(StructField { offset, field: Field::new(field_name, kind) });
                 }
                 _ => {
-                    return Err(ParseError::UnsupportedEntity {
+                    return UnsupportedEntitySnafu {
                         at: format!("struct/class {display_name}"),
                         message: format!(
                             "Unsupported entity kind in struct/class: {:?}",
                             field.get_kind()
                         ),
-                    });
+                    }
+                    .fail();
                 }
             }
         }
 
-        Ok(Self { name, base_types, fields })
+        let size = ty.get_sizeof().or_else(|e| {
+            if record_fields.is_empty() {
+                Ok(1)
+            } else {
+                SizeofSnafu { type_name: display_name.to_string(), error: e }.fail()
+            }
+        })?;
+        let alignment = ty.get_alignof().or_else(|e| {
+            if record_fields.is_empty() {
+                Ok(1)
+            } else {
+                AlignofSnafu { type_name: display_name.to_string(), error: e }.fail()
+            }
+        })?;
+
+        Ok(Self { name, base_types, fields, size, alignment })
     }
 
     fn get_offset_of_field(struct_name: &str, node: &clang::Entity) -> Result<usize, ParseError> {
-        node.get_offset_of_field().map_err(|e| ParseError::Offsetof {
-            field_name: node.get_name().unwrap_or_default(),
-            struct_name: struct_name.to_string(),
-            error: e,
+        node.get_offset_of_field().map_err(|e| {
+            OffsetofSnafu {
+                field_name: node.get_name().unwrap_or_default(),
+                struct_name: struct_name.to_string(),
+                error: e,
+            }
+            .build()
         })
     }
 
-    pub fn size(&self, env: &Env, types: &Types) -> Option<usize> {
-        if self.fields.is_empty() {
-            Some(0)
-        } else {
-            let last_field = self.fields.last().unwrap();
-            if let Some(last_field_size) = last_field.field.kind().size(env, types) {
-                Some(last_field.offset + last_field_size)
-            } else if self.fields.len() == 1 {
-                Some(0)
-            } else {
-                // Last field could be an incomplete array
-                let second_last_field = self.fields.get(self.fields.len() - 2).unwrap();
-                let size = second_last_field.field.kind().size(env, types)?;
-                Some(second_last_field.offset + size)
-            }
-        }
+    pub fn size(&self) -> usize {
+        self.size
     }
 
-    pub fn alignment(&self, env: &Env, types: &Types) -> Option<usize> {
-        let mut alignment = 1;
-        for field in &self.fields {
-            let field_alignment = field.field.kind().alignment(env, types)?;
-            alignment = alignment.max(field_alignment);
-        }
-        Some(alignment)
+    pub fn alignment(&self) -> usize {
+        self.alignment
     }
 
     pub fn is_forward_decl(&self) -> bool {
         self.fields.is_empty()
+    }
+
+    pub fn base_types(&self) -> &[String] {
+        &self.base_types
+    }
+
+    pub fn fields(&self) -> &[StructField] {
+        &self.fields
     }
 }
 

@@ -1,9 +1,16 @@
-use crate::{Env, StructDecl, Types, UnionDecl, error::ParseError};
+use crate::{
+    Env, StructDecl, Types, UnionDecl,
+    error::{ParseError, UnsupportedEntitySnafu, UnsupportedTypeSnafu},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeKind {
-    USize,
-    SSize,
+    USize {
+        size: usize,
+    },
+    SSize {
+        size: usize,
+    },
     U64,
     U32,
     U16,
@@ -14,7 +21,10 @@ pub enum TypeKind {
     S8,
     Bool,
     Void,
-    Pointer(Box<TypeKind>),
+    Pointer {
+        size: usize,
+        pointee_type: Box<TypeKind>,
+    },
     Array {
         element_type: Box<TypeKind>,
         size: Option<usize>, // None for incomplete arrays
@@ -31,8 +41,8 @@ pub enum TypeKind {
 impl TypeKind {
     pub fn new(env: &Env, types: &Types, ty: clang::Type) -> Result<Self, ParseError> {
         match ty.get_kind() {
-            clang::TypeKind::ULong => Ok(TypeKind::USize),
-            clang::TypeKind::Long => Ok(TypeKind::SSize),
+            clang::TypeKind::ULong => Ok(TypeKind::USize { size: env.word_size().bytes() }),
+            clang::TypeKind::Long => Ok(TypeKind::SSize { size: env.word_size().bytes() }),
             clang::TypeKind::ULongLong => Ok(TypeKind::U64),
             clang::TypeKind::UInt => Ok(TypeKind::U32),
             clang::TypeKind::UShort => Ok(TypeKind::U16),
@@ -45,44 +55,53 @@ impl TypeKind {
             clang::TypeKind::Void => Ok(TypeKind::Void),
             clang::TypeKind::Pointer => {
                 let pointee_type = ty.get_pointee_type().ok_or_else(|| {
-                    ParseError::UnsupportedType(format!(
-                        "Pointer type without pointee type: {ty:?}"
-                    ))
+                    UnsupportedTypeSnafu {
+                        message: format!("Pointer type without pointee type: {ty:?}"),
+                    }
+                    .build()
                 })?;
                 let inner_type = TypeKind::new(env, types, pointee_type)?;
-                Ok(TypeKind::Pointer(Box::new(inner_type)))
+                Ok(TypeKind::Pointer {
+                    size: env.word_size().bytes(),
+                    pointee_type: Box::new(inner_type),
+                })
             }
             clang::TypeKind::IncompleteArray => {
                 let element_type = ty.get_element_type().ok_or_else(|| {
-                    ParseError::UnsupportedType(format!(
-                        "IncompleteArray type without element type: {ty:?}"
-                    ))
+                    UnsupportedTypeSnafu {
+                        message: format!("IncompleteArray type without element type: {ty:?}"),
+                    }
+                    .build()
                 })?;
                 let inner_type = TypeKind::new(env, types, element_type)?;
                 Ok(TypeKind::Array { element_type: Box::new(inner_type), size: None })
             }
             clang::TypeKind::ConstantArray => {
                 let element_type = ty.get_element_type().ok_or_else(|| {
-                    ParseError::UnsupportedType(format!(
-                        "ConstantArray type without element type: {ty:?}"
-                    ))
+                    UnsupportedTypeSnafu {
+                        message: format!("ConstantArray type without element type: {ty:?}"),
+                    }
+                    .build()
                 })?;
                 let size = ty.get_size().ok_or_else(|| {
-                    ParseError::UnsupportedType(format!("ConstantArray without size: {ty:?}"))
+                    UnsupportedTypeSnafu { message: format!("ConstantArray without size: {ty:?}") }
+                        .build()
                 })?;
                 let inner_type = TypeKind::new(env, types, element_type)?;
                 Ok(TypeKind::Array { element_type: Box::new(inner_type), size: Some(size) })
             }
             clang::TypeKind::FunctionPrototype => {
                 let return_type = ty.get_result_type().ok_or_else(|| {
-                    ParseError::UnsupportedType(format!(
-                        "FunctionPrototype without return type: {ty:?}"
-                    ))
+                    UnsupportedTypeSnafu {
+                        message: format!("FunctionPrototype without return type: {ty:?}"),
+                    }
+                    .build()
                 })?;
                 let parameters = ty.get_argument_types().ok_or_else(|| {
-                    ParseError::UnsupportedType(format!(
-                        "FunctionPrototype without parameters: {ty:?}"
-                    ))
+                    UnsupportedTypeSnafu {
+                        message: format!("FunctionPrototype without parameters: {ty:?}"),
+                    }
+                    .build()
                 })?;
                 let return_type = TypeKind::new(env, types, return_type)?;
                 let parameters = parameters
@@ -93,7 +112,10 @@ impl TypeKind {
             }
             clang::TypeKind::Elaborated => {
                 let elaborated_type = ty.get_elaborated_type().ok_or_else(|| {
-                    ParseError::UnsupportedType(format!("Elaborated type without name: {ty:?}"))
+                    UnsupportedTypeSnafu {
+                        message: format!("Elaborated type without name: {ty:?}"),
+                    }
+                    .build()
                 })?;
                 let name = elaborated_type.get_display_name();
                 match name.as_str() {
@@ -103,7 +125,10 @@ impl TypeKind {
             }
             clang::TypeKind::Record => {
                 let node = ty.get_declaration().ok_or_else(|| {
-                    ParseError::UnsupportedType(format!("Record type without declaration: {ty:?}"))
+                    UnsupportedTypeSnafu {
+                        message: format!("Record type without declaration: {ty:?}"),
+                    }
+                    .build()
                 })?;
                 match node.get_kind() {
                     clang::EntityKind::StructDecl | clang::EntityKind::ClassDecl => {
@@ -114,13 +139,14 @@ impl TypeKind {
                         let union_decl = UnionDecl::new(env, types, None, ty)?;
                         Ok(TypeKind::Union(union_decl))
                     }
-                    _ => Err(ParseError::UnsupportedEntity {
+                    _ => UnsupportedEntitySnafu {
                         at: "struct/union".to_string(),
                         message: format!(
                             "Unsupported entity kind in record: {:?}",
                             node.get_kind()
                         ),
-                    }),
+                    }
+                    .fail(),
                 }
             }
             _ => {
@@ -129,48 +155,47 @@ impl TypeKind {
         }
     }
 
-    pub fn size(&self, env: &Env, types: &Types) -> Option<usize> {
-        Some(match self {
-            TypeKind::USize | TypeKind::SSize => env.word_size().bits() / 8,
+    pub fn size(&self, types: &Types) -> usize {
+        match self {
+            TypeKind::USize { size } | TypeKind::SSize { size } => *size,
             TypeKind::U64 | TypeKind::S64 => 8,
             TypeKind::U32 | TypeKind::S32 => 4,
             TypeKind::U16 | TypeKind::S16 => 2,
             TypeKind::U8 | TypeKind::S8 => 1,
             TypeKind::Bool => 1,
-            TypeKind::Void => return None,
-            TypeKind::Pointer(_) => env.word_size().bits() / 8,
+            TypeKind::Void => 0,
+            TypeKind::Pointer { size, .. } => *size,
             TypeKind::Array { element_type, size } => {
                 if let Some(size) = size {
-                    let stride = element_type
-                        .size(env, types)?
-                        .next_multiple_of(element_type.alignment(env, types)?);
+                    let stride =
+                        element_type.size(types).next_multiple_of(element_type.alignment(types));
                     size * stride
                 } else {
-                    return None;
+                    0
                 }
             }
-            TypeKind::Function { .. } => return None,
-            TypeKind::Struct(struct_decl) => struct_decl.size(env, types)?,
-            TypeKind::Union(union_decl) => union_decl.size(env, types)?,
-            TypeKind::Named(name) => types.get(name)?.size(env, types)?,
-        })
+            TypeKind::Function { .. } => 0,
+            TypeKind::Struct(struct_decl) => struct_decl.size(),
+            TypeKind::Union(union_decl) => union_decl.size(),
+            TypeKind::Named(name) => types.get(name).map(|ty| ty.size(types)).unwrap_or(0),
+        }
     }
 
-    pub fn alignment(&self, env: &Env, types: &Types) -> Option<usize> {
-        Some(match self {
-            TypeKind::USize | TypeKind::SSize => env.word_size().bits() / 8,
+    pub fn alignment(&self, types: &Types) -> usize {
+        match self {
+            TypeKind::USize { size } | TypeKind::SSize { size } => *size,
             TypeKind::U64 | TypeKind::S64 => 8,
             TypeKind::U32 | TypeKind::S32 => 4,
             TypeKind::U16 | TypeKind::S16 => 2,
             TypeKind::U8 | TypeKind::S8 => 1,
             TypeKind::Bool => 1,
-            TypeKind::Void => return None,
-            TypeKind::Pointer(_) => env.word_size().bits() / 8,
-            TypeKind::Array { element_type, .. } => element_type.alignment(env, types)?,
-            TypeKind::Function { .. } => return None,
-            TypeKind::Struct(struct_decl) => struct_decl.alignment(env, types)?,
-            TypeKind::Union(union_decl) => union_decl.alignment(env, types)?,
-            TypeKind::Named(name) => types.get(name)?.alignment(env, types)?,
-        })
+            TypeKind::Void => 0,
+            TypeKind::Pointer { size, .. } => *size,
+            TypeKind::Array { element_type, .. } => element_type.alignment(types),
+            TypeKind::Function { .. } => 0,
+            TypeKind::Struct(struct_decl) => struct_decl.alignment(),
+            TypeKind::Union(union_decl) => union_decl.alignment(),
+            TypeKind::Named(name) => types.get(name).map(|ty| ty.alignment(types)).unwrap_or(0),
+        }
     }
 }

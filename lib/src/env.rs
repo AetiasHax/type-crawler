@@ -38,6 +38,14 @@ impl WordSize {
         }
     }
 
+    pub fn bytes(&self) -> usize {
+        match self {
+            WordSize::Size16 => 2,
+            WordSize::Size32 => 4,
+            WordSize::Size64 => 8,
+        }
+    }
+
     pub fn clang_arg(&self) -> &'static str {
         match self {
             WordSize::Size16 => "-m16",

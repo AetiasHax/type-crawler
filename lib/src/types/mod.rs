@@ -8,26 +8,24 @@ mod union_decl;
 use std::fmt::Display;
 
 use indexmap::IndexMap;
-use thiserror::Error;
 
 pub use enum_decl::{EnumConstant, EnumDecl};
 pub use field::Field;
+use snafu::Snafu;
 pub use struct_decl::{StructDecl, StructField};
 pub use type_kind::TypeKind;
 pub use typedef::Typedef;
 pub use union_decl::UnionDecl;
-
-use crate::Env;
 
 #[derive(Default)]
 pub struct Types {
     types: IndexMap<String, TypeDecl>,
 }
 
-#[derive(Error, Debug)]
+#[derive(Debug, Snafu)]
 pub enum ExtendTypesError {
-    #[error("Type with the same name but different definitions: {0} and {1}")]
-    ConflictingTypes(Box<TypeDecl>, Box<TypeDecl>),
+    #[snafu(display("Type with the same name but different definitions:\n{left}\nand\n{right}"))]
+    ConflictingTypes { left: Box<TypeDecl>, right: Box<TypeDecl> },
 }
 
 impl Types {
@@ -52,6 +50,10 @@ impl Types {
         self.types.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn get(&self, name: &str) -> Option<&TypeDecl> {
         self.types.get(name)
     }
@@ -64,10 +66,11 @@ impl Types {
                     if current.is_forward_decl() {
                         entry.insert(value);
                     } else if !value.is_forward_decl() && current != &value {
-                        return Err(ExtendTypesError::ConflictingTypes(
-                            Box::new(current.clone()),
-                            Box::new(value),
-                        ));
+                        return ConflictingTypesSnafu {
+                            left: Box::new(current.clone()),
+                            right: Box::new(value),
+                        }
+                        .fail();
                     }
                 }
                 indexmap::map::Entry::Vacant(entry) => {
@@ -106,21 +109,21 @@ impl TypeDecl {
         }
     }
 
-    pub fn size(&self, env: &Env, types: &Types) -> Option<usize> {
+    pub fn size(&self, types: &Types) -> usize {
         match self {
-            TypeDecl::Typedef(typedef) => typedef.underlying_type().size(env, types),
-            TypeDecl::Enum(enum_decl) => Some(enum_decl.size()),
-            TypeDecl::Struct(struct_decl) => struct_decl.size(env, types),
-            TypeDecl::Union(union_decl) => union_decl.size(env, types),
+            TypeDecl::Typedef(typedef) => typedef.underlying_type().size(types),
+            TypeDecl::Enum(enum_decl) => enum_decl.size(),
+            TypeDecl::Struct(struct_decl) => struct_decl.size(),
+            TypeDecl::Union(union_decl) => union_decl.size(),
         }
     }
 
-    pub fn alignment(&self, env: &Env, types: &Types) -> Option<usize> {
+    pub fn alignment(&self, types: &Types) -> usize {
         match self {
-            TypeDecl::Typedef(typedef) => typedef.underlying_type().alignment(env, types),
-            TypeDecl::Enum(enum_decl) => Some(enum_decl.alignment()),
-            TypeDecl::Struct(struct_decl) => struct_decl.alignment(env, types),
-            TypeDecl::Union(union_decl) => union_decl.alignment(env, types),
+            TypeDecl::Typedef(typedef) => typedef.underlying_type().alignment(types),
+            TypeDecl::Enum(enum_decl) => enum_decl.alignment(),
+            TypeDecl::Struct(struct_decl) => struct_decl.alignment(),
+            TypeDecl::Union(union_decl) => union_decl.alignment(),
         }
     }
 }

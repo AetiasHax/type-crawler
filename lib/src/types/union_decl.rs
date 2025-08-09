@@ -1,11 +1,19 @@
 use std::fmt::Display;
 
-use crate::{Env, Field, TypeKind, Types, error::ParseError};
+use crate::{
+    Env, Field, TypeKind, Types,
+    error::{
+        AlignofSnafu, InvalidAstSnafu, ParseError, SizeofSnafu, UnsupportedEntitySnafu,
+        UnsupportedTypeSnafu,
+    },
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnionDecl {
     pub(crate) name: Option<String>,
     fields: Vec<Field>,
+    size: usize,
+    alignment: usize,
 }
 
 impl UnionDecl {
@@ -16,17 +24,17 @@ impl UnionDecl {
         ty: clang::Type,
     ) -> Result<Self, ParseError> {
         if ty.get_kind() != clang::TypeKind::Record {
-            return Err(ParseError::InvalidAst(format!("Expected Record, found: {ty:?}")));
+            return InvalidAstSnafu { message: format!("Expected Record, found: {ty:?}") }.fail();
         }
 
         let record_fields = ty.get_fields().ok_or_else(|| {
-            ParseError::UnsupportedType(format!("Record type without fields: {ty:?}"))
+            UnsupportedTypeSnafu { message: format!("Record type without fields: {ty:?}") }.build()
         })?;
 
         let display_name = name.as_deref().unwrap_or("<anon>");
 
         let mut fields = Vec::new();
-        for field in record_fields {
+        for field in &record_fields {
             match field.get_kind() {
                 clang::EntityKind::FieldDecl => {
                     let anonymous = if let Some(child) = field.get_child(0) {
@@ -38,47 +46,57 @@ impl UnionDecl {
                         None
                     } else {
                         let name = field.get_name().ok_or_else(|| {
-                            ParseError::InvalidAst(format!("FieldDecl without name: {field:?}"))
+                            InvalidAstSnafu {
+                                message: format!("FieldDecl without name: {field:?}"),
+                            }
+                            .build()
                         })?;
                         Some(name)
                     };
                     let field_type = field.get_type().ok_or_else(|| {
-                        ParseError::InvalidAst(format!("FieldDecl without type: {field:?}"))
+                        InvalidAstSnafu { message: format!("FieldDecl without type: {field:?}") }
+                            .build()
                     })?;
                     let kind = TypeKind::new(env, types, field_type)?;
                     fields.push(Field::new(field_name, kind));
                 }
                 _ => {
-                    return Err(ParseError::UnsupportedEntity {
+                    return UnsupportedEntitySnafu {
                         at: format!("union {display_name}"),
                         message: format!(
                             "Unsupported entity kind in union: {:?}",
                             field.get_kind()
                         ),
-                    });
+                    }
+                    .fail();
                 }
             }
         }
 
-        Ok(UnionDecl { name, fields })
+        let size = ty.get_sizeof().or_else(|e| {
+            if record_fields.is_empty() {
+                Ok(1)
+            } else {
+                SizeofSnafu { type_name: display_name.to_string(), error: e }.fail()
+            }
+        })?;
+        let alignment = ty.get_alignof().or_else(|e| {
+            if record_fields.is_empty() {
+                Ok(1)
+            } else {
+                AlignofSnafu { type_name: display_name.to_string(), error: e }.fail()
+            }
+        })?;
+
+        Ok(UnionDecl { name, fields, size, alignment })
     }
 
-    pub fn size(&self, env: &Env, types: &Types) -> Option<usize> {
-        let mut size = 0;
-        for field in &self.fields {
-            let field_size = field.kind().size(env, types)?;
-            size = size.max(field_size);
-        }
-        Some(size)
+    pub fn size(&self) -> usize {
+        self.size
     }
 
-    pub fn alignment(&self, env: &Env, types: &Types) -> Option<usize> {
-        let mut alignment = 1;
-        for field in &self.fields {
-            let field_alignment = field.kind().alignment(env, types)?;
-            alignment = alignment.max(field_alignment);
-        }
-        Some(alignment)
+    pub fn alignment(&self) -> usize {
+        self.alignment
     }
 }
 

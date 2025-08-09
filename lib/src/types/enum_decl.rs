@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::error::ParseError;
+use crate::error::{InvalidAstSnafu, ParseError, SizeofSnafu};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnumDecl {
@@ -18,26 +18,33 @@ pub struct EnumConstant {
 impl EnumDecl {
     pub fn new(name: String, node: &clang::Entity) -> Result<Self, ParseError> {
         if node.get_kind() != clang::EntityKind::EnumDecl {
-            return Err(ParseError::InvalidAst(format!("Expected EnumDecl, found: {node:?}")));
+            return InvalidAstSnafu { message: format!("Expected EnumDecl, found: {node:?}") }
+                .fail();
         }
 
         let underlying_type = node.get_enum_underlying_type().ok_or_else(|| {
-            ParseError::InvalidAst(format!("EnumDecl without underlying type: {node:?}"))
+            InvalidAstSnafu { message: format!("EnumDecl without underlying type: {node:?}") }
+                .build()
         })?;
-        let size = underlying_type.get_sizeof()?;
+        let size = underlying_type.get_sizeof().map_err(|e| {
+            SizeofSnafu { type_name: underlying_type.get_display_name(), error: e }.build()
+        })?;
 
         let mut constants = Vec::new();
         for child in node.get_children() {
             if child.get_kind() != clang::EntityKind::EnumConstantDecl {
-                return Err(ParseError::InvalidAst(format!(
-                    "Expected EnumConstantDecl, found: {child:?}"
-                )));
+                return InvalidAstSnafu {
+                    message: format!("Expected EnumConstantDecl, found: {child:?}"),
+                }
+                .fail();
             }
             let name = child.get_name().ok_or_else(|| {
-                ParseError::InvalidAst(format!("EnumConstantDecl without name: {child:?}"))
+                { InvalidAstSnafu { message: format!("EnumConstantDecl without name: {child:?}") } }
+                    .build()
             })?;
             let (value, _) = child.get_enum_constant_value().ok_or_else(|| {
-                ParseError::InvalidAst(format!("EnumConstantDecl without value: {child:?}"))
+                InvalidAstSnafu { message: format!("EnumConstantDecl without value: {child:?}") }
+                    .build()
             })?;
             constants.push(EnumConstant { name, value });
         }

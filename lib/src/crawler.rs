@@ -4,7 +4,10 @@ use clang::Clang;
 
 use crate::{
     Env,
-    error::{AddIncludePathError, ParseError, TypeCrawlerError},
+    error::{
+        AddIncludePathError, ClangInitSnafu, DoesNotExistSnafu, FileNotFoundSnafu,
+        NotADirectorySnafu, ParseError, TypeCrawlerError,
+    },
     parser::Parser,
     types::Types,
 };
@@ -17,7 +20,7 @@ pub struct TypeCrawler {
 
 impl TypeCrawler {
     pub fn new(env: Env) -> Result<Self, TypeCrawlerError> {
-        let clang = Clang::new().map_err(TypeCrawlerError::ClangInit)?;
+        let clang = Clang::new().map_err(|message| ClangInitSnafu { message }.build())?;
         Ok(Self::from_clang(clang, env))
     }
 
@@ -28,10 +31,10 @@ impl TypeCrawler {
     pub fn add_include_path<P: AsRef<Path>>(&mut self, path: P) -> Result<(), AddIncludePathError> {
         let path = path.as_ref();
         if !path.exists() {
-            return Err(AddIncludePathError::DoesNotExist(path.display().to_string()));
+            return DoesNotExistSnafu { path: path.display().to_string() }.fail();
         }
         if !path.is_dir() {
-            return Err(AddIncludePathError::NotADirectory(path.display().to_string()));
+            return NotADirectorySnafu { path: path.display().to_string() }.fail();
         }
 
         let path_buf = path.to_path_buf();
@@ -55,7 +58,7 @@ impl TypeCrawler {
     pub fn parse_file<P: AsRef<Path>>(&self, file_path: P) -> Result<Types, ParseError> {
         let path = file_path.as_ref();
         if !path.exists() {
-            return Err(ParseError::FileNotFound(path.display().to_string()));
+            return FileNotFoundSnafu { name: path.display().to_string() }.fail();
         }
 
         let index = clang::Index::new(&self.clang, false, false);
