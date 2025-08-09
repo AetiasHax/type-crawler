@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use crate::{
-    Env, Field, TypeKind, Types,
+    Env, Field, Types,
     error::{
         AlignofSnafu, InvalidAstSnafu, ParseError, SizeofSnafu, UnsupportedEntitySnafu,
         UnsupportedTypeSnafu,
@@ -57,8 +57,7 @@ impl UnionDecl {
                         InvalidAstSnafu { message: format!("FieldDecl without type: {field:?}") }
                             .build()
                     })?;
-                    let kind = TypeKind::new(env, types, field_type)?;
-                    fields.push(Field::new(field_name, kind));
+                    fields.push(Field::new(env, types, field_name, field_type)?);
                 }
                 _ => {
                     return UnsupportedEntitySnafu {
@@ -97,6 +96,10 @@ impl UnionDecl {
 
     pub fn alignment(&self) -> usize {
         self.alignment
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
     }
 }
 

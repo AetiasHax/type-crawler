@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use crate::{
-    Env, Field, TypeKind, Types,
+    Env, Field, Types,
     error::{
         AlignofSnafu, InvalidAstSnafu, OffsetofSnafu, ParseError, SizeofSnafu,
         UnsupportedEntitySnafu, UnsupportedTypeSnafu,
@@ -20,8 +20,8 @@ pub struct StructDecl {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StructField {
     /// Offset in bits
-    pub offset: usize,
-    pub field: Field,
+    offset: usize,
+    field: Field,
 }
 
 impl StructDecl {
@@ -81,8 +81,10 @@ impl StructDecl {
                             .build()
                     })?;
                     let offset = Self::get_offset_of_field(display_name, field)?;
-                    let kind = TypeKind::new(env, types, field_type)?;
-                    fields.push(StructField { offset, field: Field::new(field_name, kind) });
+                    fields.push(StructField {
+                        offset,
+                        field: Field::new(env, types, field_name, field_type)?,
+                    });
                 }
                 _ => {
                     return UnsupportedEntitySnafu {
@@ -145,11 +147,23 @@ impl StructDecl {
     pub fn fields(&self) -> &[StructField] {
         &self.fields
     }
+
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
 }
 
 impl StructField {
     pub fn offset_bytes(&self) -> usize {
         self.offset / 8
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        self.field.name()
+    }
+
+    pub fn kind(&self) -> &super::TypeKind {
+        self.field.kind()
     }
 }
 
@@ -166,8 +180,7 @@ impl Display for StructDecl {
         }
         writeln!(f, " {{")?;
         for field in &self.fields {
-            let name = field.field.name().unwrap_or("<anon>");
-            writeln!(f, "  {} @ {:#x}: {:x?}", name, field.offset_bytes(), field.field.kind())?;
+            writeln!(f, "  ({:#x}) {}", field.offset_bytes(), field.field)?;
         }
         write!(f, "}}")?;
         Ok(())

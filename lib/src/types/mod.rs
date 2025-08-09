@@ -94,7 +94,7 @@ impl TypeDecl {
     pub fn name(&self) -> Option<&String> {
         match self {
             TypeDecl::Typedef(typedef) => Some(&typedef.name),
-            TypeDecl::Enum(enum_decl) => Some(&enum_decl.name),
+            TypeDecl::Enum(enum_decl) => enum_decl.name.as_ref(),
             TypeDecl::Struct(struct_decl) => struct_decl.name.as_ref(),
             TypeDecl::Union(union_decl) => union_decl.name.as_ref(),
         }

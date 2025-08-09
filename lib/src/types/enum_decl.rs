@@ -4,7 +4,7 @@ use crate::error::{InvalidAstSnafu, ParseError, SizeofSnafu};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnumDecl {
-    pub(crate) name: String,
+    pub(crate) name: Option<String>,
     constants: Vec<EnumConstant>,
     size: usize,
 }
@@ -16,7 +16,7 @@ pub struct EnumConstant {
 }
 
 impl EnumDecl {
-    pub fn new(name: String, node: &clang::Entity) -> Result<Self, ParseError> {
+    pub fn new(name: Option<String>, node: &clang::Entity) -> Result<Self, ParseError> {
         if node.get_kind() != clang::EntityKind::EnumDecl {
             return InvalidAstSnafu { message: format!("Expected EnumDecl, found: {node:?}") }
                 .fail();
@@ -59,11 +59,15 @@ impl EnumDecl {
     pub fn alignment(&self) -> usize {
         self.size
     }
+
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
 }
 
 impl Display for EnumDecl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{} (size={}) {{ ", self.name, self.size)?;
+        writeln!(f, "{} (size={}) {{ ", self.name.as_deref().unwrap_or("<anon>"), self.size)?;
         for constant in &self.constants {
             writeln!(f, "  {}: {:#x}", constant.name, constant.value)?;
         }

@@ -48,9 +48,7 @@ impl Parser {
                 self.types.add_type(TypeDecl::Typedef(typedef));
             }
             clang::EntityKind::EnumDecl => {
-                let name = node.get_name().ok_or_else(|| {
-                    InvalidAstSnafu { message: format!("EnumDecl without name: {node:?}") }.build()
-                })?;
+                let name = node.get_name();
                 let enum_decl = EnumDecl::new(name, node)?;
                 self.types.add_type(TypeDecl::Enum(enum_decl));
             }
