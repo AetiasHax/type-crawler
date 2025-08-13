@@ -198,4 +198,10 @@ impl TypeKind {
             TypeKind::Named(name) => types.get(name).map(|ty| ty.alignment(types)).unwrap_or(0),
         }
     }
+
+    pub fn stride(&self, types: &Types) -> usize {
+        let size = self.size(types);
+        let alignment = self.alignment(types);
+        size.next_multiple_of(alignment)
+    }
 }
