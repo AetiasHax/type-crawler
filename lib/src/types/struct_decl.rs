@@ -52,7 +52,6 @@ impl StructDecl {
 
         let display_name = name.as_deref().unwrap_or("<anon>");
 
-        let mut fields = Vec::<StructField>::new();
         let record_fields = ty.get_fields().ok_or_else(|| {
             UnsupportedTypeSnafu { message: format!("Record type without fields: {ty:?}") }.build()
         })?;
@@ -82,6 +81,7 @@ impl StructDecl {
             }
         }
 
+        let mut fields = Vec::<StructField>::new();
         for field in &record_fields {
             match field.get_kind() {
                 clang::EntityKind::FieldDecl => {
