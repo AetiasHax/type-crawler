@@ -47,4 +47,6 @@ pub enum ParseError {
     Sizeof { type_name: String, error: clang::SizeofError, backtrace: Backtrace },
     #[snafu(display("Failed to get alignment of type {type_name}: {error}:\n{backtrace}"))]
     Alignof { type_name: String, error: clang::AlignofError, backtrace: Backtrace },
+    #[snafu(display("Invalid fields in {struct_name}: {field_names:?}:\n{backtrace}"))]
+    InvalidFields { field_names: Vec<String>, struct_name: String, backtrace: Backtrace },
 }

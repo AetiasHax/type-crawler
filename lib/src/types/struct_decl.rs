@@ -3,7 +3,7 @@ use std::fmt::Display;
 use crate::{
     Env, Field, Types,
     error::{
-        AlignofSnafu, InvalidAstSnafu, OffsetofSnafu, ParseError, SizeofSnafu,
+        AlignofSnafu, InvalidAstSnafu, InvalidFieldsSnafu, OffsetofSnafu, ParseError, SizeofSnafu,
         UnsupportedEntitySnafu, UnsupportedTypeSnafu,
     },
 };
@@ -56,6 +56,32 @@ impl StructDecl {
         let record_fields = ty.get_fields().ok_or_else(|| {
             UnsupportedTypeSnafu { message: format!("Record type without fields: {ty:?}") }.build()
         })?;
+        if record_fields.is_empty() {
+            let declaration = ty.get_declaration().ok_or_else(|| {
+                InvalidAstSnafu { message: format!("Record type without declaration: {ty:?}") }
+                    .build()
+            })?;
+
+            let decl_children = declaration.get_children();
+            let invalid_fields = decl_children
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| {
+                    c.get_kind() == clang::EntityKind::FieldDecl && c.is_invalid_declaration()
+                })
+                .collect::<Vec<_>>();
+            if !invalid_fields.is_empty() {
+                return InvalidFieldsSnafu {
+                    field_names: invalid_fields
+                        .iter()
+                        .map(|(i, c)| c.get_name().unwrap_or_else(|| format!("<index#{i}>")))
+                        .collect::<Vec<_>>(),
+                    struct_name: display_name.to_string(),
+                }
+                .fail();
+            }
+        }
+
         for field in &record_fields {
             match field.get_kind() {
                 clang::EntityKind::FieldDecl => {
