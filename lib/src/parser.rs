@@ -24,6 +24,14 @@ impl Parser {
     }
 
     pub(crate) fn parse(&mut self, env: &Env, node: &clang::Entity) -> Result<(), ParseError> {
+        let kind = node.get_kind();
+        if kind != clang::EntityKind::NotImplemented
+            && !node.get_location().unwrap().is_in_main_file()
+        {
+            // Skip entities not in the main file
+            return Ok(());
+        }
+
         match node.get_kind() {
             clang::EntityKind::NotImplemented => self.parse_children(env, node)?,
             // typedef <underlying_type> <name>;
