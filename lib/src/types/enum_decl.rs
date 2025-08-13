@@ -63,6 +63,24 @@ impl EnumDecl {
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
+
+    pub fn get(&self, value: i64) -> Option<&EnumConstant> {
+        self.constants.iter().find(|c| c.value == value)
+    }
+
+    pub fn constants(&self) -> &[EnumConstant] {
+        &self.constants
+    }
+}
+
+impl EnumConstant {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn value(&self) -> i64 {
+        self.value
+    }
 }
 
 impl Display for EnumDecl {

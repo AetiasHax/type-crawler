@@ -101,6 +101,10 @@ impl UnionDecl {
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
+
+    pub fn fields(&self) -> &[Field] {
+        &self.fields
+    }
 }
 
 impl Display for UnionDecl {
