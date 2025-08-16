@@ -31,12 +31,36 @@ impl Types {
         Default::default()
     }
 
-    pub fn add_type(&mut self, kind: TypeKind) -> bool {
-        if let Some(name) = kind.name() {
-            self.types.insert(name.to_string(), kind);
-            true
+    pub fn add_type(&mut self, kind: TypeKind) -> Result<bool, ExtendTypesError> {
+        if let TypeKind::Typedef(typedef) = &kind
+            && let TypeKind::Named(name) = typedef.underlying_type()
+            && typedef.name() == name
+        {
+            // Avoid adding a typedef that has the same name as its underlying type
+            // Example: typedef struct MyStruct {...} MyStruct;
+            return Ok(false);
+        };
+        if let Some(name) = kind.name().map(String::from) {
+            match self.types.entry(name) {
+                indexmap::map::Entry::Occupied(mut entry) => {
+                    let current = entry.get();
+                    if current.is_forward_decl() {
+                        entry.insert(kind);
+                    } else if !kind.is_forward_decl() && current != &kind {
+                        return ConflictingTypesSnafu {
+                            left: Box::new(current.clone()),
+                            right: Box::new(kind),
+                        }
+                        .fail();
+                    }
+                }
+                indexmap::map::Entry::Vacant(entry) => {
+                    entry.insert(kind);
+                }
+            }
+            Ok(true)
         } else {
-            false
+            Ok(false)
         }
     }
 

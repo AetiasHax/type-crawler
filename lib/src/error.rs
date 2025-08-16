@@ -3,6 +3,8 @@ use std::backtrace::Backtrace;
 use clang::SourceError;
 use snafu::Snafu;
 
+use crate::ExtendTypesError;
+
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub(crate)))]
 pub enum TypeCrawlerError {
@@ -49,4 +51,6 @@ pub enum ParseError {
     Alignof { type_name: String, error: clang::AlignofError, backtrace: Backtrace },
     #[snafu(display("Invalid fields in {struct_name}: {field_names:?}:\n{backtrace}"))]
     InvalidFields { field_names: Vec<String>, struct_name: String, backtrace: Backtrace },
+    #[snafu(transparent)]
+    ExtendTypesError { source: ExtendTypesError },
 }
