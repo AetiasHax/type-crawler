@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use crate::{
-    Env, Field, Types,
+    Env, Field, TypeKind, Types,
     error::{
         AlignofSnafu, InvalidAstSnafu, InvalidFieldsSnafu, OffsetofSnafu, ParseError, SizeofSnafu,
         UnsupportedEntitySnafu, UnsupportedTypeSnafu,
@@ -174,8 +174,21 @@ impl StructDecl {
         &self.fields
     }
 
-    pub fn get_field(&self, name: &str) -> Option<&StructField> {
-        self.fields.iter().find(|f| f.name() == Some(name))
+    pub fn get_field<'a>(&'a self, types: &'a Types, name: &str) -> Option<&'a StructField> {
+        self.fields.iter().find(|f| f.name() == Some(name)).or_else(|| {
+            self.base_types
+                .iter()
+                .filter_map(|base| types.get(base))
+                .filter_map(|base| base.expand_named(types))
+                .filter_map(|base| {
+                    if let TypeKind::Struct(struct_decl) = base {
+                        struct_decl.get_field(types, name)
+                    } else {
+                        None
+                    }
+                })
+                .next()
+        })
     }
 
     pub fn name(&self) -> Option<&str> {
