@@ -204,4 +204,12 @@ impl TypeKind {
         let alignment = self.alignment(types);
         size.next_multiple_of(alignment)
     }
+
+    pub fn as_struct<'a>(&'a self, types: &'a Types) -> Option<&'a StructDecl> {
+        match self {
+            TypeKind::Struct(struct_decl) => Some(struct_decl),
+            TypeKind::Named(name) => types.get(name)?.as_struct(types),
+            _ => None,
+        }
+    }
 }

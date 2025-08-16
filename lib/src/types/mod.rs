@@ -126,6 +126,14 @@ impl TypeDecl {
             TypeDecl::Union(union_decl) => union_decl.alignment(),
         }
     }
+
+    pub fn as_struct<'a>(&'a self, types: &'a Types) -> Option<&'a StructDecl> {
+        match self {
+            TypeDecl::Typedef(typedef) => typedef.underlying_type().as_struct(types),
+            TypeDecl::Struct(struct_decl) => Some(struct_decl),
+            _ => None,
+        }
+    }
 }
 
 impl Display for TypeDecl {
