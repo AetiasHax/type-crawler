@@ -224,6 +224,13 @@ impl TypeKind {
         }
     }
 
+    pub fn expand_named<'a>(&'a self, types: &'a Types) -> Option<&'a TypeKind> {
+        match self {
+            TypeKind::Named(name) => types.get(name),
+            _ => Some(self),
+        }
+    }
+
     pub fn is_forward_decl(&self) -> bool {
         match self {
             TypeKind::Struct(struct_decl) => struct_decl.is_forward_decl(),
