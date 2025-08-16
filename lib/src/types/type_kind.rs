@@ -213,11 +213,12 @@ impl TypeKind {
         size.next_multiple_of(alignment)
     }
 
-    pub fn name(&self) -> Option<&String> {
+    pub fn name(&self) -> Option<&str> {
         match self {
             TypeKind::Struct(struct_decl) => struct_decl.name(),
             TypeKind::Union(union_decl) => union_decl.name(),
             TypeKind::Enum(enum_decl) => enum_decl.name(),
+            TypeKind::Typedef(typedef) => Some(typedef.name()),
             TypeKind::Named(name) => Some(name),
             _ => None,
         }

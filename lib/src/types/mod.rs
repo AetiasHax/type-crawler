@@ -33,7 +33,7 @@ impl Types {
 
     pub fn add_type(&mut self, kind: TypeKind) -> bool {
         if let Some(name) = kind.name() {
-            self.types.insert(name.clone(), kind);
+            self.types.insert(name.to_string(), kind);
             true
         } else {
             false

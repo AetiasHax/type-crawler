@@ -4,7 +4,7 @@ use crate::{Env, Types, error::ParseError, types::TypeKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Typedef {
-    pub(crate) name: String,
+    name: String,
     underlying_type: TypeKind,
     constant: bool,
     volatile: bool,
@@ -27,6 +27,18 @@ impl Typedef {
 
     pub fn underlying_type(&self) -> &TypeKind {
         &self.underlying_type
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn constant(&self) -> bool {
+        self.constant
+    }
+
+    pub fn volatile(&self) -> bool {
+        self.volatile
     }
 }
 

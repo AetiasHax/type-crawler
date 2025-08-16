@@ -60,8 +60,8 @@ impl EnumDecl {
         self.size
     }
 
-    pub fn name(&self) -> Option<&String> {
-        self.name.as_ref()
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
     }
 
     pub fn get(&self, value: i64) -> Option<&EnumConstant> {

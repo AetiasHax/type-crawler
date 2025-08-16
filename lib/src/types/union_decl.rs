@@ -123,8 +123,8 @@ impl UnionDecl {
         self.alignment
     }
 
-    pub fn name(&self) -> Option<&String> {
-        self.name.as_ref()
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
     }
 
     pub fn fields(&self) -> &[Field] {
