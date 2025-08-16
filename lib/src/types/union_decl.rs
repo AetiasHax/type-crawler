@@ -130,6 +130,10 @@ impl UnionDecl {
     pub fn fields(&self) -> &[Field] {
         &self.fields
     }
+
+    pub fn get_field(&self, name: &str) -> Option<&Field> {
+        self.fields.iter().find(|f| f.name() == Some(name))
+    }
 }
 
 impl Display for UnionDecl {

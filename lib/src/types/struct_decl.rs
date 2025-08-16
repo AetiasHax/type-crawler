@@ -174,6 +174,10 @@ impl StructDecl {
         &self.fields
     }
 
+    pub fn get_field(&self, name: &str) -> Option<&StructField> {
+        self.fields.iter().find(|f| f.name() == Some(name))
+    }
+
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
