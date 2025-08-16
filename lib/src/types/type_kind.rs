@@ -1,5 +1,5 @@
 use crate::{
-    Env, StructDecl, Types, UnionDecl,
+    EnumDecl, Env, StructDecl, Types, UnionDecl,
     error::{ParseError, UnsupportedEntitySnafu, UnsupportedTypeSnafu},
 };
 
@@ -35,6 +35,7 @@ pub enum TypeKind {
     },
     Struct(StructDecl),
     Union(UnionDecl),
+    Enum(EnumDecl),
     Named(String),
 }
 
@@ -177,6 +178,7 @@ impl TypeKind {
             TypeKind::Function { .. } => 0,
             TypeKind::Struct(struct_decl) => struct_decl.size(),
             TypeKind::Union(union_decl) => union_decl.size(),
+            TypeKind::Enum(enum_decl) => enum_decl.size(),
             TypeKind::Named(name) => types.get(name).map(|ty| ty.size(types)).unwrap_or(0),
         }
     }
@@ -195,6 +197,7 @@ impl TypeKind {
             TypeKind::Function { .. } => 0,
             TypeKind::Struct(struct_decl) => struct_decl.alignment(),
             TypeKind::Union(union_decl) => union_decl.alignment(),
+            TypeKind::Enum(enum_decl) => enum_decl.alignment(),
             TypeKind::Named(name) => types.get(name).map(|ty| ty.alignment(types)).unwrap_or(0),
         }
     }
