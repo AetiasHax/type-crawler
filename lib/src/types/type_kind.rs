@@ -1,5 +1,7 @@
+use std::fmt::Display;
+
 use crate::{
-    EnumDecl, Env, StructDecl, Types, UnionDecl,
+    EnumDecl, Env, StructDecl, Typedef, Types, UnionDecl,
     error::{ParseError, UnsupportedEntitySnafu, UnsupportedTypeSnafu},
 };
 
@@ -36,6 +38,7 @@ pub enum TypeKind {
     Struct(StructDecl),
     Union(UnionDecl),
     Enum(EnumDecl),
+    Typedef(Box<Typedef>),
     Named(String),
 }
 
@@ -179,6 +182,7 @@ impl TypeKind {
             TypeKind::Struct(struct_decl) => struct_decl.size(),
             TypeKind::Union(union_decl) => union_decl.size(),
             TypeKind::Enum(enum_decl) => enum_decl.size(),
+            TypeKind::Typedef(typedef) => typedef.underlying_type().size(types),
             TypeKind::Named(name) => types.get(name).map(|ty| ty.size(types)).unwrap_or(0),
         }
     }
@@ -198,6 +202,7 @@ impl TypeKind {
             TypeKind::Struct(struct_decl) => struct_decl.alignment(),
             TypeKind::Union(union_decl) => union_decl.alignment(),
             TypeKind::Enum(enum_decl) => enum_decl.alignment(),
+            TypeKind::Typedef(typedef) => typedef.underlying_type().alignment(types),
             TypeKind::Named(name) => types.get(name).map(|ty| ty.alignment(types)).unwrap_or(0),
         }
     }
@@ -208,11 +213,67 @@ impl TypeKind {
         size.next_multiple_of(alignment)
     }
 
+    pub fn name(&self) -> Option<&String> {
+        match self {
+            TypeKind::Struct(struct_decl) => struct_decl.name(),
+            TypeKind::Union(union_decl) => union_decl.name(),
+            TypeKind::Enum(enum_decl) => enum_decl.name(),
+            TypeKind::Named(name) => Some(name),
+            _ => None,
+        }
+    }
+
+    pub fn is_forward_decl(&self) -> bool {
+        match self {
+            TypeKind::Struct(struct_decl) => struct_decl.is_forward_decl(),
+            _ => false,
+        }
+    }
+
     pub fn as_struct<'a>(&'a self, types: &'a Types) -> Option<&'a StructDecl> {
         match self {
             TypeKind::Struct(struct_decl) => Some(struct_decl),
             TypeKind::Named(name) => types.get(name)?.as_struct(types),
             _ => None,
+        }
+    }
+}
+
+impl Display for TypeKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TypeKind::USize { size } => write!(f, "usize({size})"),
+            TypeKind::SSize { size } => write!(f, "ssize({size})"),
+            TypeKind::U64 => write!(f, "u64"),
+            TypeKind::U32 => write!(f, "u32"),
+            TypeKind::U16 => write!(f, "u16"),
+            TypeKind::U8 => write!(f, "u8"),
+            TypeKind::S64 => write!(f, "s64"),
+            TypeKind::S32 => write!(f, "s32"),
+            TypeKind::S16 => write!(f, "s16"),
+            TypeKind::S8 => write!(f, "s8"),
+            TypeKind::Bool => write!(f, "bool"),
+            TypeKind::Void => write!(f, "void"),
+            TypeKind::Pointer { pointee_type, .. } => {
+                write!(f, "{}*", pointee_type)
+            }
+            TypeKind::Array { element_type, size } => {
+                if let Some(size) = size {
+                    write!(f, "{}[{}]", element_type, size)
+                } else {
+                    write!(f, "{}[]", element_type)
+                }
+            }
+            TypeKind::Function { return_type, parameters } => {
+                let params =
+                    parameters.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", ");
+                write!(f, "{return_type} function({params})")
+            }
+            TypeKind::Struct(struct_decl) => write!(f, "struct {struct_decl}"),
+            TypeKind::Union(union_decl) => write!(f, "union {union_decl}"),
+            TypeKind::Enum(enum_decl) => write!(f, "enum {enum_decl}"),
+            TypeKind::Typedef(typedef) => write!(f, "{typedef}"),
+            TypeKind::Named(name) => write!(f, "{name}"),
         }
     }
 }

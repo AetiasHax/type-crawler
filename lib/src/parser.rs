@@ -1,5 +1,5 @@
 use crate::{
-    EnumDecl, Env, StructDecl, TypeDecl, Typedef, Types, UnionDecl,
+    EnumDecl, Env, StructDecl, TypeKind, Typedef, Types, UnionDecl,
     error::{InvalidAstSnafu, ParseError, UnsupportedEntitySnafu},
 };
 
@@ -53,12 +53,12 @@ impl Parser {
                         .build()
                 })?;
                 let typedef = Typedef::new(env, &self.types, name, underlying_type)?;
-                self.types.add_type(TypeDecl::Typedef(typedef));
+                self.types.add_type(TypeKind::Typedef(Box::new(typedef)));
             }
             clang::EntityKind::EnumDecl => {
                 let name = node.get_name();
                 let enum_decl = EnumDecl::new(name, node)?;
-                self.types.add_type(TypeDecl::Enum(enum_decl));
+                self.types.add_type(TypeKind::Enum(enum_decl));
             }
             clang::EntityKind::StructDecl | clang::EntityKind::ClassDecl => {
                 let name = node.get_name().ok_or_else(|| {
@@ -70,7 +70,7 @@ impl Parser {
                         .build()
                 })?;
                 let struct_decl = StructDecl::new(env, &self.types, Some(name), ty)?;
-                self.types.add_type(TypeDecl::Struct(struct_decl));
+                self.types.add_type(TypeKind::Struct(struct_decl));
             }
             clang::EntityKind::Namespace => {
                 self.parse_children(env, node)?;
@@ -89,7 +89,7 @@ impl Parser {
                     InvalidAstSnafu { message: format!("UnionDecl without type: {node:?}") }.build()
                 })?;
                 let union_decl = UnionDecl::new(env, &self.types, Some(name), ty)?;
-                self.types.add_type(TypeDecl::Union(union_decl));
+                self.types.add_type(TypeKind::Union(union_decl));
             }
 
             clang::EntityKind::FunctionDecl => {}
