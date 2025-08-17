@@ -64,7 +64,11 @@ impl EnumDecl {
         self.name.as_deref()
     }
 
-    pub fn get(&self, value: i64) -> Option<&EnumConstant> {
+    pub fn get(&self, name: &str) -> Option<&EnumConstant> {
+        self.constants.iter().find(|c| c.name == name)
+    }
+
+    pub fn get_by_value(&self, value: i64) -> Option<&EnumConstant> {
         self.constants.iter().find(|c| c.value == value)
     }
 

@@ -23,6 +23,12 @@ impl Env {
     }
 }
 
+impl Default for EnvOptions {
+    fn default() -> Self {
+        EnvOptions { word_size: WordSize::Size64, short_enums: true }
+    }
+}
+
 pub enum WordSize {
     Size16,
     Size32,
