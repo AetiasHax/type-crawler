@@ -62,27 +62,7 @@ impl UnionDecl {
         for field in &record_fields {
             match field.get_kind() {
                 clang::EntityKind::FieldDecl => {
-                    let anonymous = if let Some(child) = field.get_child(0) {
-                        child.is_anonymous()
-                    } else {
-                        false
-                    };
-                    let field_name = if anonymous {
-                        None
-                    } else {
-                        let name = field.get_name().ok_or_else(|| {
-                            InvalidAstSnafu {
-                                message: format!("FieldDecl without name: {field:?}"),
-                            }
-                            .build()
-                        })?;
-                        Some(name)
-                    };
-                    let field_type = field.get_type().ok_or_else(|| {
-                        InvalidAstSnafu { message: format!("FieldDecl without type: {field:?}") }
-                            .build()
-                    })?;
-                    fields.push(Field::new(env, types, field_name, field_type)?);
+                    fields.push(Field::new(env, types, field)?);
                 }
                 _ => {
                     return UnsupportedEntitySnafu {

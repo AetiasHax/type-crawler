@@ -85,32 +85,8 @@ impl StructDecl {
         for field in &record_fields {
             match field.get_kind() {
                 clang::EntityKind::FieldDecl => {
-                    let anonymous = if let Some(child) = field.get_child(0) {
-                        child.is_anonymous()
-                    } else {
-                        false
-                    };
-
-                    let field_name = if anonymous {
-                        None
-                    } else {
-                        let name = field.get_name().ok_or_else(|| {
-                            InvalidAstSnafu {
-                                message: format!("FieldDecl without name: {field:?}"),
-                            }
-                            .build()
-                        })?;
-                        Some(name)
-                    };
-                    let field_type = field.get_type().ok_or_else(|| {
-                        InvalidAstSnafu { message: format!("Field without type: {field:?}") }
-                            .build()
-                    })?;
                     let offset = Self::get_offset_of_field(display_name, field)?;
-                    fields.push(StructField {
-                        offset,
-                        field: Field::new(env, types, field_name, field_type)?,
-                    });
+                    fields.push(StructField { offset, field: Field::new(env, types, field)? });
                 }
                 _ => {
                     return UnsupportedEntitySnafu {
@@ -201,12 +177,32 @@ impl StructField {
         self.offset / 8
     }
 
+    pub fn offset_bits(&self) -> usize {
+        self.offset
+    }
+
     pub fn name(&self) -> Option<&str> {
         self.field.name()
     }
 
     pub fn kind(&self) -> &super::TypeKind {
         self.field.kind()
+    }
+
+    pub fn constant(&self) -> bool {
+        self.field.constant()
+    }
+
+    pub fn volatile(&self) -> bool {
+        self.field.volatile()
+    }
+
+    pub fn bit_field_width(&self) -> Option<u8> {
+        self.field.bit_field_width()
+    }
+
+    pub fn size(&self, types: &Types) -> usize {
+        self.field.size(types)
     }
 }
 
