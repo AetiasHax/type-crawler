@@ -12,6 +12,7 @@ mod tests {
         let TypeKind::Struct(my_struct) = my_struct else {
             panic!("Expected Struct type, found: {my_struct:?}");
         };
+        assert!(!my_struct.is_class());
         assert_eq!(my_struct.size(), 8);
         assert_eq!(my_struct.alignment(), 4);
         assert!(my_struct.base_types().is_empty());
@@ -137,7 +138,7 @@ mod tests {
             // Compounds
             ("e", |k| matches!(k, &TypeKind::Enum { .. })),
             ("s", |k| matches!(k, &TypeKind::Struct { .. })),
-            ("c", |k| matches!(k, &TypeKind::Struct { .. })),
+            ("c", |k| matches!(k, &TypeKind::Class { .. })),
             ("u", |k| matches!(k, &TypeKind::Union { .. })),
         ];
 

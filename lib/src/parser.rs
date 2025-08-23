@@ -60,7 +60,7 @@ impl Parser {
                 let enum_decl = EnumDecl::new(name, node)?;
                 self.types.add_type(TypeKind::Enum(enum_decl))?;
             }
-            clang::EntityKind::StructDecl | clang::EntityKind::ClassDecl => {
+            clang::EntityKind::StructDecl => {
                 let name = node.get_name().ok_or_else(|| {
                     InvalidAstSnafu { message: format!("StructDecl without name: {node:?}") }
                         .build()
@@ -71,6 +71,16 @@ impl Parser {
                 })?;
                 let struct_decl = StructDecl::new(env, &self.types, Some(name), ty)?;
                 self.types.add_type(TypeKind::Struct(struct_decl))?;
+            }
+            clang::EntityKind::ClassDecl => {
+                let name = node.get_name().ok_or_else(|| {
+                    InvalidAstSnafu { message: format!("ClassDecl without name: {node:?}") }.build()
+                })?;
+                let ty = node.get_type().ok_or_else(|| {
+                    InvalidAstSnafu { message: format!("ClassDecl without type: {node:?}") }.build()
+                })?;
+                let class_decl = StructDecl::new(env, &self.types, Some(name), ty)?;
+                self.types.add_type(TypeKind::Class(class_decl))?;
             }
             clang::EntityKind::Namespace => {
                 self.parse_children(env, node)?;

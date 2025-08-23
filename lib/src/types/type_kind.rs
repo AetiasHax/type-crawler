@@ -55,6 +55,7 @@ pub enum TypeKind {
         parameters: Vec<TypeKind>,
     },
     Struct(StructDecl),
+    Class(StructDecl),
     Union(UnionDecl),
     Enum(EnumDecl),
     Typedef(Box<Typedef>),
@@ -216,9 +217,13 @@ impl TypeKind {
                     .build()
                 })?;
                 match node.get_kind() {
-                    clang::EntityKind::StructDecl | clang::EntityKind::ClassDecl => {
+                    clang::EntityKind::StructDecl => {
                         let struct_decl = StructDecl::new(env, types, None, ty)?;
                         Ok(TypeKind::Struct(struct_decl))
+                    }
+                    clang::EntityKind::ClassDecl => {
+                        let struct_decl = StructDecl::new(env, types, None, ty)?;
+                        Ok(TypeKind::Class(struct_decl))
                     }
                     clang::EntityKind::UnionDecl => {
                         let union_decl = UnionDecl::new(env, types, None, ty)?;
@@ -279,6 +284,7 @@ impl TypeKind {
             }
             TypeKind::Function { .. } => 0,
             TypeKind::Struct(struct_decl) => struct_decl.size(),
+            TypeKind::Class(class_decl) => class_decl.size(),
             TypeKind::Union(union_decl) => union_decl.size(),
             TypeKind::Enum(enum_decl) => enum_decl.size(),
             TypeKind::Typedef(typedef) => typedef.underlying_type().size(types),
@@ -307,6 +313,7 @@ impl TypeKind {
             TypeKind::Array { element_type, .. } => element_type.alignment(types),
             TypeKind::Function { .. } => 0,
             TypeKind::Struct(struct_decl) => struct_decl.alignment(),
+            TypeKind::Class(class_decl) => class_decl.alignment(),
             TypeKind::Union(union_decl) => union_decl.alignment(),
             TypeKind::Enum(enum_decl) => enum_decl.alignment(),
             TypeKind::Typedef(typedef) => typedef.underlying_type().alignment(types),
@@ -323,6 +330,7 @@ impl TypeKind {
     pub fn name(&self) -> Option<&str> {
         match self {
             TypeKind::Struct(struct_decl) => struct_decl.name(),
+            TypeKind::Class(class_decl) => class_decl.name(),
             TypeKind::Union(union_decl) => union_decl.name(),
             TypeKind::Enum(enum_decl) => enum_decl.name(),
             TypeKind::Typedef(typedef) => Some(typedef.name()),
@@ -341,6 +349,7 @@ impl TypeKind {
     pub fn is_forward_decl(&self) -> bool {
         match self {
             TypeKind::Struct(struct_decl) => struct_decl.is_forward_decl(),
+            TypeKind::Class(class_decl) => class_decl.is_forward_decl(),
             _ => false,
         }
     }
@@ -348,6 +357,7 @@ impl TypeKind {
     pub fn as_struct<'a>(&'a self, types: &'a Types) -> Option<&'a StructDecl> {
         match self {
             TypeKind::Struct(struct_decl) => Some(struct_decl),
+            TypeKind::Class(class_decl) => Some(class_decl),
             TypeKind::Named(name) => types.get(name)?.as_struct(types),
             _ => None,
         }
@@ -397,6 +407,7 @@ impl Display for TypeKind {
                 write!(f, "{return_type} function({params})")
             }
             TypeKind::Struct(struct_decl) => write!(f, "struct {struct_decl}"),
+            TypeKind::Class(class_decl) => write!(f, "class {class_decl}"),
             TypeKind::Union(union_decl) => write!(f, "union {union_decl}"),
             TypeKind::Enum(enum_decl) => write!(f, "enum {enum_decl}"),
             TypeKind::Typedef(typedef) => write!(f, "{typedef}"),

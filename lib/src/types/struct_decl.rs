@@ -15,6 +15,7 @@ pub struct StructDecl {
     pub(crate) fields: Vec<StructField>,
     size: usize,
     alignment: usize,
+    is_class: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,19 +37,23 @@ impl StructDecl {
         }
 
         let mut base_types = Vec::new();
-        if let Some(node) = ty.get_declaration() {
-            for child in node.get_children() {
-                if child.get_kind() != clang::EntityKind::BaseSpecifier {
-                    continue;
-                }
-                let base_type = child.get_type().ok_or_else(|| {
-                    InvalidAstSnafu { message: format!("BaseSpecifier without type: {child:?}") }
-                        .build()
-                })?;
-                let base_name = base_type.get_display_name();
-                base_types.push(base_name);
+        let Some(node) = ty.get_declaration() else {
+            return InvalidAstSnafu { message: format!("Record type without declaration: {ty:?}") }
+                .fail();
+        };
+        for child in node.get_children() {
+            if child.get_kind() != clang::EntityKind::BaseSpecifier {
+                continue;
             }
+            let base_type = child.get_type().ok_or_else(|| {
+                InvalidAstSnafu { message: format!("BaseSpecifier without type: {child:?}") }
+                    .build()
+            })?;
+            let base_name = base_type.get_display_name();
+            base_types.push(base_name);
         }
+
+        let is_class = node.get_kind() == clang::EntityKind::ClassDecl;
 
         let display_name = name.as_deref().unwrap_or("<anon>");
 
@@ -116,7 +121,7 @@ impl StructDecl {
             }
         })?;
 
-        Ok(Self { name, base_types, fields, size, alignment })
+        Ok(Self { name, base_types, fields, size, alignment, is_class })
     }
 
     fn get_offset_of_field(struct_name: &str, node: &clang::Entity) -> Result<usize, ParseError> {
@@ -156,12 +161,10 @@ impl StructDecl {
                 .iter()
                 .filter_map(|base| types.get(base))
                 .filter_map(|base| base.expand_named(types))
-                .filter_map(|base| {
-                    if let TypeKind::Struct(struct_decl) = base {
-                        struct_decl.get_field(types, name)
-                    } else {
-                        None
-                    }
+                .filter_map(|base| match base {
+                    TypeKind::Struct(struct_decl) => struct_decl.get_field(types, name),
+                    TypeKind::Class(class_decl) => class_decl.get_field(types, name),
+                    _ => None,
                 })
                 .next()
         })
@@ -169,6 +172,10 @@ impl StructDecl {
 
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
+    }
+
+    pub fn is_class(&self) -> bool {
+        self.is_class
     }
 }
 
