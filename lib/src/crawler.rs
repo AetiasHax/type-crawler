@@ -51,6 +51,7 @@ impl TypeCrawler {
             .chain([
                 self.env.word_size().clang_arg().to_string(),
                 self.env.short_enums_clang_arg().to_string(),
+                self.env.signed_char_clang_arg().to_string(),
             ])
             .collect()
     }

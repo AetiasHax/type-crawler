@@ -1,17 +1,19 @@
 pub struct Env {
     word_size: WordSize,
     short_enums: bool,
+    signed_char: bool,
 }
 
 pub struct EnvOptions {
     pub word_size: WordSize,
     pub short_enums: bool,
+    pub signed_char: bool,
 }
 
 impl Env {
     pub fn new(options: EnvOptions) -> Self {
-        let EnvOptions { word_size, short_enums } = options;
-        Env { word_size, short_enums }
+        let EnvOptions { word_size, short_enums, signed_char } = options;
+        Env { word_size, short_enums, signed_char }
     }
 
     pub fn word_size(&self) -> &WordSize {
@@ -21,11 +23,15 @@ impl Env {
     pub fn short_enums_clang_arg(&self) -> &'static str {
         if self.short_enums { "-fshort-enums" } else { "-fno-short-enums" }
     }
+
+    pub fn signed_char_clang_arg(&self) -> &'static str {
+        if self.signed_char { "-fsigned-char" } else { "-funsigned-char" }
+    }
 }
 
 impl Default for EnvOptions {
     fn default() -> Self {
-        EnvOptions { word_size: WordSize::Size64, short_enums: true }
+        EnvOptions { word_size: WordSize::Size64, short_enums: true, signed_char: true }
     }
 }
 
