@@ -21,13 +21,7 @@ impl Field {
                 .fail();
         }
 
-        let anonymous = if let Some(child) = field.get_child(0) {
-            child.is_anonymous()
-        } else {
-            false
-        };
-
-        let name = if anonymous {
+        let name = if field.is_anonymous() {
             None
         } else {
             let name = field.get_name().ok_or_else(|| {

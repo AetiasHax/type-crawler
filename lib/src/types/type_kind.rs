@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::{
     EnumDecl, Env, StructDecl, Typedef, Types, UnionDecl,
-    error::{ParseError, UnsupportedEntitySnafu, UnsupportedTypeSnafu},
+    error::{ParseError, SizeofSnafu, UnsupportedEntitySnafu, UnsupportedTypeSnafu},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,11 +21,30 @@ pub enum TypeKind {
     S32,
     S16,
     S8,
+    F32,
+    F64,
+    LongDouble {
+        size: usize,
+    },
+    Char16,
+    Char32,
+    WChar {
+        size: usize,
+    },
     Bool,
     Void,
+    Reference {
+        size: usize,
+        referenced_type: Box<TypeKind>,
+    },
     Pointer {
         size: usize,
         pointee_type: Box<TypeKind>,
+    },
+    MemberPointer {
+        size: usize,
+        pointee_type: Box<TypeKind>,
+        record_name: String,
     },
     Array {
         element_type: Box<TypeKind>,
@@ -44,7 +63,8 @@ pub enum TypeKind {
 
 impl TypeKind {
     pub fn new(env: &Env, types: &Types, ty: clang::Type) -> Result<Self, ParseError> {
-        match ty.get_kind() {
+        let kind = ty.get_kind();
+        match kind {
             clang::TypeKind::ULong => Ok(TypeKind::USize { size: env.word_size().bytes() }),
             clang::TypeKind::Long => Ok(TypeKind::SSize { size: env.word_size().bytes() }),
             clang::TypeKind::ULongLong => Ok(TypeKind::U64),
@@ -55,9 +75,24 @@ impl TypeKind {
             clang::TypeKind::Int => Ok(TypeKind::S32),
             clang::TypeKind::Short => Ok(TypeKind::S16),
             clang::TypeKind::CharS => Ok(TypeKind::S8),
+            clang::TypeKind::CharU => Ok(TypeKind::U8),
+            clang::TypeKind::Float => Ok(TypeKind::F32),
+            clang::TypeKind::Double => Ok(TypeKind::F64),
+            clang::TypeKind::LongDouble => Ok(TypeKind::LongDouble {
+                size: ty.get_sizeof().map_err(|e| {
+                    SizeofSnafu { type_name: ty.get_display_name(), error: e }.build()
+                })?,
+            }),
+            clang::TypeKind::Char16 => Ok(TypeKind::Char16),
+            clang::TypeKind::Char32 => Ok(TypeKind::Char32),
+            clang::TypeKind::WChar => Ok(TypeKind::WChar {
+                size: ty.get_sizeof().map_err(|e| {
+                    SizeofSnafu { type_name: ty.get_display_name(), error: e }.build()
+                })?,
+            }),
             clang::TypeKind::Bool => Ok(TypeKind::Bool),
             clang::TypeKind::Void => Ok(TypeKind::Void),
-            clang::TypeKind::Pointer => {
+            clang::TypeKind::LValueReference | clang::TypeKind::Pointer => {
                 let pointee_type = ty.get_pointee_type().ok_or_else(|| {
                     UnsupportedTypeSnafu {
                         message: format!("Pointer type without pointee type: {ty:?}"),
@@ -65,10 +100,41 @@ impl TypeKind {
                     .build()
                 })?;
                 let inner_type = TypeKind::new(env, types, pointee_type)?;
-                Ok(TypeKind::Pointer {
-                    size: env.word_size().bytes(),
-                    pointee_type: Box::new(inner_type),
-                })
+                let size = ty.get_sizeof().map_err(|e| {
+                    SizeofSnafu { type_name: ty.get_display_name(), error: e }.build()
+                })?;
+                let pointee_type = Box::new(inner_type);
+
+                if kind == clang::TypeKind::LValueReference {
+                    Ok(TypeKind::Reference { size, referenced_type: pointee_type })
+                } else {
+                    Ok(TypeKind::Pointer { size, pointee_type })
+                }
+            }
+            clang::TypeKind::MemberPointer => {
+                let pointee_type = ty.get_pointee_type().ok_or_else(|| {
+                    UnsupportedTypeSnafu {
+                        message: format!("MemberPointer type without pointee type: {ty:?}"),
+                    }
+                    .build()
+                })?;
+                let inner_type = TypeKind::new(env, types, pointee_type)?;
+                let size = ty.get_sizeof().map_err(|e| {
+                    SizeofSnafu { type_name: ty.get_display_name(), error: e }.build()
+                })?;
+                let pointee_type = Box::new(inner_type);
+
+                let record_name = ty
+                    .get_class_type()
+                    .ok_or_else(|| {
+                        UnsupportedTypeSnafu {
+                            message: format!("MemberPointer type without class type: {ty:?}"),
+                        }
+                        .build()
+                    })?
+                    .get_display_name();
+
+                Ok(TypeKind::MemberPointer { size, pointee_type, record_name })
             }
             clang::TypeKind::IncompleteArray => {
                 let element_type = ty.get_element_type().ok_or_else(|| {
@@ -117,14 +183,29 @@ impl TypeKind {
             clang::TypeKind::Elaborated => {
                 let elaborated_type = ty.get_elaborated_type().ok_or_else(|| {
                     UnsupportedTypeSnafu {
-                        message: format!("Elaborated type without name: {ty:?}"),
+                        message: format!("Elaborated type without type: {ty:?}"),
                     }
                     .build()
                 })?;
-                let name = elaborated_type.get_display_name();
-                match name.as_str() {
-                    "bool" => Ok(TypeKind::Bool), // "bool" not defined in C
-                    _ => Ok(TypeKind::Named(name)),
+                let elaborated_decl = elaborated_type.get_declaration().ok_or_else(|| {
+                    UnsupportedTypeSnafu {
+                        message: format!("Elaborated type without declaration: {ty:?}"),
+                    }
+                    .build()
+                })?;
+                if elaborated_decl.is_anonymous() {
+                    TypeKind::new(env, types, elaborated_type)
+                } else {
+                    let name = elaborated_decl.get_name().ok_or_else(|| {
+                        UnsupportedTypeSnafu {
+                            message: format!("Elaborated type declaration without name: {ty:?}"),
+                        }
+                        .build()
+                    })?;
+                    match name.as_str() {
+                        "bool" => Ok(TypeKind::Bool), // "bool" not defined in C
+                        _ => Ok(TypeKind::Named(name)),
+                    }
                 }
             }
             clang::TypeKind::Record => {
@@ -153,6 +234,16 @@ impl TypeKind {
                     .fail(),
                 }
             }
+            clang::TypeKind::Enum => {
+                let decl = ty.get_declaration().ok_or_else(|| {
+                    UnsupportedTypeSnafu {
+                        message: format!("Enum type without declaration: {ty:?}"),
+                    }
+                    .build()
+                })?;
+                let name = decl.get_name();
+                Ok(TypeKind::Enum(EnumDecl::new(name, &decl)?))
+            }
             _ => {
                 panic!("Unsupported type: {:?} for name: {}", ty.get_kind(), ty.get_display_name())
             }
@@ -166,9 +257,17 @@ impl TypeKind {
             TypeKind::U32 | TypeKind::S32 => 4,
             TypeKind::U16 | TypeKind::S16 => 2,
             TypeKind::U8 | TypeKind::S8 => 1,
+            TypeKind::F32 => 4,
+            TypeKind::F64 => 8,
+            TypeKind::LongDouble { size } => *size,
+            TypeKind::Char16 => 2,
+            TypeKind::Char32 => 4,
+            TypeKind::WChar { size } => *size,
             TypeKind::Bool => 1,
             TypeKind::Void => 0,
+            TypeKind::Reference { size, .. } => *size,
             TypeKind::Pointer { size, .. } => *size,
+            TypeKind::MemberPointer { size, .. } => *size,
             TypeKind::Array { element_type, size } => {
                 if let Some(size) = size {
                     let stride =
@@ -194,9 +293,17 @@ impl TypeKind {
             TypeKind::U32 | TypeKind::S32 => 4,
             TypeKind::U16 | TypeKind::S16 => 2,
             TypeKind::U8 | TypeKind::S8 => 1,
+            TypeKind::F32 => todo!(),
+            TypeKind::F64 => todo!(),
+            TypeKind::LongDouble { size } => todo!(),
+            TypeKind::Char16 => 2,
+            TypeKind::Char32 => 4,
+            TypeKind::WChar { size } => *size,
             TypeKind::Bool => 1,
             TypeKind::Void => 0,
+            TypeKind::Reference { size, .. } => *size,
             TypeKind::Pointer { size, .. } => *size,
+            TypeKind::MemberPointer { size, .. } => *size,
             TypeKind::Array { element_type, .. } => element_type.alignment(types),
             TypeKind::Function { .. } => 0,
             TypeKind::Struct(struct_decl) => struct_decl.alignment(),
@@ -260,10 +367,22 @@ impl Display for TypeKind {
             TypeKind::S32 => write!(f, "s32"),
             TypeKind::S16 => write!(f, "s16"),
             TypeKind::S8 => write!(f, "s8"),
+            TypeKind::F32 => write!(f, "f32"),
+            TypeKind::F64 => write!(f, "f64"),
+            TypeKind::LongDouble { size } => write!(f, "long double({size})"),
+            TypeKind::Char16 => write!(f, "char16"),
+            TypeKind::Char32 => write!(f, "char32"),
+            TypeKind::WChar { size } => write!(f, "wchar({size})"),
             TypeKind::Bool => write!(f, "bool"),
             TypeKind::Void => write!(f, "void"),
+            TypeKind::Reference { referenced_type, .. } => {
+                write!(f, "{}&", referenced_type)
+            }
             TypeKind::Pointer { pointee_type, .. } => {
                 write!(f, "{}*", pointee_type)
+            }
+            TypeKind::MemberPointer { pointee_type, record_name, .. } => {
+                write!(f, "{} {}::*", pointee_type, record_name)
             }
             TypeKind::Array { element_type, size } => {
                 if let Some(size) = size {
