@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::{
     EnumDecl, Env, StructDecl, Typedef, Types, UnionDecl,
-    error::{ParseError, SizeofSnafu, UnsupportedEntitySnafu, UnsupportedTypeSnafu},
+    error::{AlignofSnafu, ParseError, SizeofSnafu, UnsupportedEntitySnafu, UnsupportedTypeSnafu},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,6 +25,7 @@ pub enum TypeKind {
     F64,
     LongDouble {
         size: usize,
+        alignment: usize,
     },
     Char16,
     Char32,
@@ -82,6 +83,9 @@ impl TypeKind {
             clang::TypeKind::LongDouble => Ok(TypeKind::LongDouble {
                 size: ty.get_sizeof().map_err(|e| {
                     SizeofSnafu { type_name: ty.get_display_name(), error: e }.build()
+                })?,
+                alignment: ty.get_alignof().map_err(|e| {
+                    AlignofSnafu { type_name: ty.get_display_name(), error: e }.build()
                 })?,
             }),
             clang::TypeKind::Char16 => Ok(TypeKind::Char16),
@@ -264,7 +268,7 @@ impl TypeKind {
             TypeKind::U8 | TypeKind::S8 => 1,
             TypeKind::F32 => 4,
             TypeKind::F64 => 8,
-            TypeKind::LongDouble { size } => *size,
+            TypeKind::LongDouble { size, .. } => *size,
             TypeKind::Char16 => 2,
             TypeKind::Char32 => 4,
             TypeKind::WChar { size } => *size,
@@ -299,9 +303,9 @@ impl TypeKind {
             TypeKind::U32 | TypeKind::S32 => 4,
             TypeKind::U16 | TypeKind::S16 => 2,
             TypeKind::U8 | TypeKind::S8 => 1,
-            TypeKind::F32 => todo!(),
-            TypeKind::F64 => todo!(),
-            TypeKind::LongDouble { size } => todo!(),
+            TypeKind::F32 => 4,
+            TypeKind::F64 => 8,
+            TypeKind::LongDouble { alignment, .. } => *alignment,
             TypeKind::Char16 => 2,
             TypeKind::Char32 => 4,
             TypeKind::WChar { size } => *size,
@@ -379,7 +383,7 @@ impl Display for TypeKind {
             TypeKind::S8 => write!(f, "s8"),
             TypeKind::F32 => write!(f, "f32"),
             TypeKind::F64 => write!(f, "f64"),
-            TypeKind::LongDouble { size } => write!(f, "long double({size})"),
+            TypeKind::LongDouble { size, .. } => write!(f, "long double({size})"),
             TypeKind::Char16 => write!(f, "char16"),
             TypeKind::Char32 => write!(f, "char32"),
             TypeKind::WChar { size } => write!(f, "wchar({size})"),
