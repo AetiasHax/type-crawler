@@ -9,6 +9,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct UnionDecl {
     pub(crate) name: Option<String>,
     fields: Vec<Field>,

@@ -5,10 +5,9 @@ mod type_kind;
 mod typedef;
 mod union_decl;
 
-use indexmap::IndexMap;
-
 pub use enum_decl::{EnumConstant, EnumDecl};
 pub use field::Field;
+use indexmap::IndexMap;
 use snafu::Snafu;
 pub use struct_decl::{StructDecl, StructField};
 pub use type_kind::TypeKind;
@@ -16,6 +15,7 @@ pub use typedef::Typedef;
 pub use union_decl::UnionDecl;
 
 #[derive(Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Types {
     types: IndexMap<String, TypeKind>,
 }

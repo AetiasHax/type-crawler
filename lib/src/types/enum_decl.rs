@@ -3,6 +3,7 @@ use std::fmt::Display;
 use crate::error::{InvalidAstSnafu, ParseError, SizeofSnafu};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EnumDecl {
     pub(crate) name: Option<String>,
     constants: Vec<EnumConstant>,
@@ -10,6 +11,7 @@ pub struct EnumDecl {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EnumConstant {
     name: String,
     value: i64,

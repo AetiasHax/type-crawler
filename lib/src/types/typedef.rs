@@ -3,6 +3,7 @@ use std::fmt::Display;
 use crate::{Env, Types, error::ParseError, types::TypeKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Typedef {
     name: String,
     underlying_type: TypeKind,
