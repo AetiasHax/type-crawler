@@ -64,7 +64,13 @@ impl TypeCrawler {
 
         let index = clang::Index::new(&self.clang, false, false);
         let mut parser = index.parser(path);
-        parser.arguments(&self.arguments());
+        let mut arguments = self.arguments();
+        if path.extension().is_none() {
+            // Assume C++ for headers like `vector`, `string`, etc.
+            arguments.push("-x".into());
+            arguments.push("c++".into());
+        }
+        parser.arguments(&arguments);
         let unit = parser.parse()?;
 
         let root = unit.get_entity();
