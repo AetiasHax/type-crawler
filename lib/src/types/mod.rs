@@ -6,8 +6,6 @@ mod type_kind;
 mod typedef;
 mod union_decl;
 
-use std::borrow::Cow;
-
 pub use enum_decl::{EnumConstant, EnumDecl};
 pub use field::Field;
 use indexmap::IndexMap;
@@ -80,7 +78,7 @@ impl Types {
         self.len() == 0
     }
 
-    pub fn get<'a>(&self, path: impl Into<TypePath>) -> Option<&TypeKind> {
+    pub fn get(&self, path: impl Into<TypePath>) -> Option<&TypeKind> {
         self.types.get(&path.into())
     }
 

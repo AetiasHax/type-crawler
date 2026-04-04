@@ -70,8 +70,3 @@ impl<'a> From<&'a TypePath> for Cow<'a, TypePath> {
         Cow::Borrowed(val)
     }
 }
-
-pub enum Either<L, R> {
-    Left(L),
-    Right(R),
-}
