@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use crate::{
-    Env, Field, Types,
+    Env, Field, TypePath, Types,
     error::{
         AlignofSnafu, InvalidAstSnafu, InvalidFieldsSnafu, ParseError, SizeofSnafu,
         UnsupportedEntitySnafu, UnsupportedTypeSnafu,
@@ -11,7 +11,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct UnionDecl {
-    pub(crate) name: Option<String>,
+    pub(crate) path: Option<TypePath>,
     fields: Vec<Field>,
     size: usize,
     alignment: usize,
@@ -21,14 +21,14 @@ impl UnionDecl {
     pub fn new(
         env: &Env,
         types: &Types,
-        name: Option<String>,
+        path: Option<TypePath>,
         ty: clang::Type,
     ) -> Result<Self, ParseError> {
         if ty.get_kind() != clang::TypeKind::Record {
             return InvalidAstSnafu { message: format!("Expected Record, found: {ty:?}") }.fail();
         }
 
-        let display_name = name.as_deref().unwrap_or("<anon>");
+        let display_name = path.clone().unwrap_or("<anon>".into());
 
         let record_fields = ty.get_fields().ok_or_else(|| {
             UnsupportedTypeSnafu { message: format!("Record type without fields: {ty:?}") }.build()
@@ -93,7 +93,7 @@ impl UnionDecl {
             }
         })?;
 
-        Ok(UnionDecl { name, fields, size, alignment })
+        Ok(UnionDecl { path, fields, size, alignment })
     }
 
     pub fn size(&self) -> usize {
@@ -104,8 +104,13 @@ impl UnionDecl {
         self.alignment
     }
 
+    #[deprecated(note = "use path().map(|p| p.name()) instead")]
     pub fn name(&self) -> Option<&str> {
-        self.name.as_deref()
+        self.path.as_ref().map(|p| p.name())
+    }
+
+    pub fn path(&self) -> Option<&TypePath> {
+        self.path.as_ref()
     }
 
     pub fn fields(&self) -> &[Field] {
@@ -119,7 +124,7 @@ impl UnionDecl {
 
 impl Display for UnionDecl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{} {{", self.name.as_deref().unwrap_or("<anon>"))?;
+        writeln!(f, "{} {{", self.path.clone().unwrap_or("<anon>".into()))?;
         for field in &self.fields {
             writeln!(f, "  {field}")?;
         }

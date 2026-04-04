@@ -1,13 +1,17 @@
 mod enum_decl;
 mod field;
+mod path;
 mod struct_decl;
 mod type_kind;
 mod typedef;
 mod union_decl;
 
+use std::borrow::Cow;
+
 pub use enum_decl::{EnumConstant, EnumDecl};
 pub use field::Field;
 use indexmap::IndexMap;
+pub use path::TypePath;
 use snafu::Snafu;
 pub use struct_decl::{StructDecl, StructField};
 pub use type_kind::TypeKind;
@@ -17,7 +21,7 @@ pub use union_decl::UnionDecl;
 #[derive(Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Types {
-    types: IndexMap<String, TypeKind>,
+    types: IndexMap<TypePath, TypeKind>,
 }
 
 #[derive(Debug, Snafu)]
@@ -33,15 +37,15 @@ impl Types {
 
     pub fn add_type(&mut self, kind: TypeKind) -> Result<bool, ExtendTypesError> {
         if let TypeKind::Typedef(typedef) = &kind
-            && let TypeKind::Named(name) = typedef.underlying_type()
-            && typedef.name() == name
+            && let TypeKind::Named(path) = typedef.underlying_type()
+            && typedef.path() == path
         {
-            // Avoid adding a typedef that has the same name as its underlying type
+            // Avoid adding a typedef that has the same path as its underlying type
             // Example: typedef struct MyStruct {...} MyStruct;
             return Ok(false);
         };
-        if let Some(name) = kind.name().map(String::from) {
-            match self.types.entry(name) {
+        if let Some(path) = kind.path().cloned() {
+            match self.types.entry(path) {
                 indexmap::map::Entry::Occupied(mut entry) => {
                     let current = entry.get();
                     if current.is_forward_decl() {
@@ -76,8 +80,8 @@ impl Types {
         self.len() == 0
     }
 
-    pub fn get(&self, name: &str) -> Option<&TypeKind> {
-        self.types.get(name)
+    pub fn get<'a>(&self, path: impl Into<TypePath>) -> Option<&TypeKind> {
+        self.types.get(&path.into())
     }
 
     pub fn extend(&mut self, other: Types) -> Result<(), ExtendTypesError> {

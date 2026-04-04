@@ -1,5 +1,5 @@
 use crate::{
-    EnumDecl, Env, StructDecl, TypeKind, Typedef, Types, UnionDecl,
+    EnumDecl, Env, StructDecl, TypeKind, TypePath, Typedef, Types, UnionDecl,
     error::{InvalidAstSnafu, ParseError, UnsupportedEntitySnafu},
 };
 
@@ -48,38 +48,30 @@ impl Parser {
                     }
                     .build()
                 })?;
-                let name = node.get_name().ok_or_else(|| {
-                    InvalidAstSnafu { message: format!("TypedefDecl without name: {node:?}") }
-                        .build()
-                })?;
-                let typedef = Typedef::new(env, &self.types, name, underlying_type)?;
+                let path = TypePath::from_entity(node)?;
+                let typedef = Typedef::new(env, &self.types, path, underlying_type)?;
                 self.types.add_type(TypeKind::Typedef(Box::new(typedef)))?;
             }
             clang::EntityKind::EnumDecl => {
-                let name = node.get_name();
-                let enum_decl = EnumDecl::new(name, node)?;
+                let path = TypePath::from_entity(node)?;
+                let enum_decl = EnumDecl::new(Some(path), node)?;
                 self.types.add_type(TypeKind::Enum(enum_decl))?;
             }
             clang::EntityKind::StructDecl => {
-                let name = node.get_name().ok_or_else(|| {
-                    InvalidAstSnafu { message: format!("StructDecl without name: {node:?}") }
-                        .build()
-                })?;
+                let path = TypePath::from_entity(node)?;
                 let ty = node.get_type().ok_or_else(|| {
                     InvalidAstSnafu { message: format!("StructDecl without type: {node:?}") }
                         .build()
                 })?;
-                let struct_decl = StructDecl::new(env, &self.types, Some(name), ty)?;
+                let struct_decl = StructDecl::new(env, &self.types, Some(path), ty)?;
                 self.types.add_type(TypeKind::Struct(struct_decl))?;
             }
             clang::EntityKind::ClassDecl => {
-                let name = node.get_name().ok_or_else(|| {
-                    InvalidAstSnafu { message: format!("ClassDecl without name: {node:?}") }.build()
-                })?;
+                let path = TypePath::from_entity(node)?;
                 let ty = node.get_type().ok_or_else(|| {
                     InvalidAstSnafu { message: format!("ClassDecl without type: {node:?}") }.build()
                 })?;
-                let class_decl = StructDecl::new(env, &self.types, Some(name), ty)?;
+                let class_decl = StructDecl::new(env, &self.types, Some(path), ty)?;
                 self.types.add_type(TypeKind::Class(class_decl))?;
             }
             clang::EntityKind::Namespace => {
@@ -92,13 +84,11 @@ impl Parser {
                 // TODO: Handle template classes
             }
             clang::EntityKind::UnionDecl => {
-                let name = node.get_name().ok_or_else(|| {
-                    InvalidAstSnafu { message: format!("UnionDecl without name: {node:?}") }.build()
-                })?;
+                let path = TypePath::from_entity(node)?;
                 let ty = node.get_type().ok_or_else(|| {
                     InvalidAstSnafu { message: format!("UnionDecl without type: {node:?}") }.build()
                 })?;
-                let union_decl = UnionDecl::new(env, &self.types, Some(name), ty)?;
+                let union_decl = UnionDecl::new(env, &self.types, Some(path), ty)?;
                 self.types.add_type(TypeKind::Union(union_decl))?;
             }
 

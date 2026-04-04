@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use type_crawler::{Env, EnvOptions, TypeCrawler, TypeKind};
+    use type_crawler::{Env, EnvOptions, TypeCrawler, TypeKind, TypePath};
 
     #[test]
     fn test_simple() {
@@ -25,15 +25,15 @@ mod tests {
         assert!(!u32_ty.constant());
         assert!(!u32_ty.volatile());
 
-        assert_eq!(vu32_ty.underlying_type(), &TypeKind::Named("u32".to_string()));
+        assert_eq!(vu32_ty.underlying_type(), &TypeKind::Named(TypePath::global("u32")));
         assert!(!vu32_ty.constant());
         assert!(vu32_ty.volatile());
 
-        assert_eq!(cu32_ty.underlying_type(), &TypeKind::Named("u32".to_string()));
+        assert_eq!(cu32_ty.underlying_type(), &TypeKind::Named(TypePath::global("u32")));
         assert!(cu32_ty.constant());
         assert!(!cu32_ty.volatile());
 
-        assert_eq!(cvu32_ty.underlying_type(), &TypeKind::Named("u32".to_string()));
+        assert_eq!(cvu32_ty.underlying_type(), &TypeKind::Named(TypePath::global("u32")));
         assert!(cvu32_ty.constant());
         assert!(cvu32_ty.volatile());
     }

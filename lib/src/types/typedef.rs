@@ -1,11 +1,11 @@
 use std::fmt::Display;
 
-use crate::{Env, Types, error::ParseError, types::TypeKind};
+use crate::{Env, TypePath, Types, error::ParseError, types::TypeKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Typedef {
-    name: String,
+    path: TypePath,
     underlying_type: TypeKind,
     constant: bool,
     volatile: bool,
@@ -15,11 +15,11 @@ impl Typedef {
     pub fn new(
         env: &Env,
         types: &Types,
-        name: String,
+        path: TypePath,
         underlying_type: clang::Type,
     ) -> Result<Self, ParseError> {
         Ok(Typedef {
-            name,
+            path,
             underlying_type: TypeKind::new(env, types, underlying_type)?,
             constant: underlying_type.is_const_qualified(),
             volatile: underlying_type.is_volatile_qualified(),
@@ -30,8 +30,13 @@ impl Typedef {
         &self.underlying_type
     }
 
+    #[deprecated(note = "use path().name() instead")]
     pub fn name(&self) -> &str {
-        &self.name
+        self.path.name()
+    }
+
+    pub fn path(&self) -> &TypePath {
+        &self.path
     }
 
     pub fn constant(&self) -> bool {
@@ -51,7 +56,7 @@ impl Display for Typedef {
             if self.constant { "const " } else { "" },
             if self.volatile { "volatile " } else { "" },
             self.underlying_type,
-            self.name,
+            self.path,
         )
     }
 }

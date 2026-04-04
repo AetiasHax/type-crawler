@@ -1,11 +1,15 @@
 use std::fmt::Display;
 
-use crate::error::{InvalidAstSnafu, ParseError, SizeofSnafu};
+use crate::{
+    TypePath,
+    error::{InvalidAstSnafu, ParseError, SizeofSnafu},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EnumDecl {
-    pub(crate) name: Option<String>,
+    // TODO: this is always Some()?
+    pub(crate) path: Option<TypePath>,
     constants: Vec<EnumConstant>,
     size: usize,
 }
@@ -18,7 +22,7 @@ pub struct EnumConstant {
 }
 
 impl EnumDecl {
-    pub fn new(name: Option<String>, node: &clang::Entity) -> Result<Self, ParseError> {
+    pub fn new(path: Option<TypePath>, node: &clang::Entity) -> Result<Self, ParseError> {
         if node.get_kind() != clang::EntityKind::EnumDecl {
             return InvalidAstSnafu { message: format!("Expected EnumDecl, found: {node:?}") }
                 .fail();
@@ -51,7 +55,7 @@ impl EnumDecl {
             constants.push(EnumConstant { name, value });
         }
 
-        Ok(EnumDecl { name, constants, size })
+        Ok(EnumDecl { path, constants, size })
     }
 
     pub fn size(&self) -> usize {
@@ -62,8 +66,13 @@ impl EnumDecl {
         self.size
     }
 
+    #[deprecated(note = "use path().map(|p| p.name()) instead")]
     pub fn name(&self) -> Option<&str> {
-        self.name.as_deref()
+        self.path.as_ref().map(|p| p.name())
+    }
+
+    pub fn path(&self) -> Option<&TypePath> {
+        self.path.as_ref()
     }
 
     pub fn get(&self, name: &str) -> Option<&EnumConstant> {
@@ -91,7 +100,7 @@ impl EnumConstant {
 
 impl Display for EnumDecl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{} (size={}) {{ ", self.name.as_deref().unwrap_or("<anon>"), self.size)?;
+        writeln!(f, "{} (size={}) {{ ", self.path.clone().unwrap_or("<anon>".into()), self.size)?;
         for constant in &self.constants {
             writeln!(f, "  {}: {:#x}", constant.name, constant.value)?;
         }

@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use crate::{
-    EnumDecl, Env, StructDecl, Typedef, Types, UnionDecl,
+    EnumDecl, Env, StructDecl, TypePath, Typedef, Types, UnionDecl,
     error::{AlignofSnafu, ParseError, SizeofSnafu, UnsupportedEntitySnafu, UnsupportedTypeSnafu},
 };
 
@@ -61,7 +61,7 @@ pub enum TypeKind {
     Union(UnionDecl),
     Enum(EnumDecl),
     Typedef(Box<Typedef>),
-    Named(String),
+    Named(TypePath),
 }
 
 impl TypeKind {
@@ -202,15 +202,11 @@ impl TypeKind {
                 if elaborated_decl.is_anonymous() {
                     TypeKind::new(env, types, elaborated_type)
                 } else {
-                    let name = elaborated_decl.get_name().ok_or_else(|| {
-                        UnsupportedTypeSnafu {
-                            message: format!("Elaborated type declaration without name: {ty:?}"),
-                        }
-                        .build()
-                    })?;
-                    match name.as_str() {
-                        "bool" => Ok(TypeKind::Bool), // "bool" not defined in C
-                        _ => Ok(TypeKind::Named(name)),
+                    let path = TypePath::from_entity(&elaborated_decl)?;
+                    if path == TypePath::global("bool") {
+                        Ok(TypeKind::Bool) // "bool" not defined in C
+                    } else {
+                        Ok(TypeKind::Named(path))
                     }
                 }
             }
@@ -251,8 +247,8 @@ impl TypeKind {
                     }
                     .build()
                 })?;
-                let name = decl.get_name();
-                Ok(TypeKind::Enum(EnumDecl::new(name, &decl)?))
+                let path = TypePath::from_entity(&decl)?;
+                Ok(TypeKind::Enum(EnumDecl::new(Some(path), &decl)?))
             }
             _ => {
                 panic!("Unsupported type: {:?} for name: {}", ty.get_kind(), ty.get_display_name())
@@ -293,7 +289,7 @@ impl TypeKind {
             TypeKind::Union(union_decl) => union_decl.size(),
             TypeKind::Enum(enum_decl) => enum_decl.size(),
             TypeKind::Typedef(typedef) => typedef.underlying_type().size(types),
-            TypeKind::Named(name) => types.get(name).map(|ty| ty.size(types)).unwrap_or(0),
+            TypeKind::Named(name) => types.get(name.clone()).map(|ty| ty.size(types)).unwrap_or(0),
         }
     }
 
@@ -322,7 +318,9 @@ impl TypeKind {
             TypeKind::Union(union_decl) => union_decl.alignment(),
             TypeKind::Enum(enum_decl) => enum_decl.alignment(),
             TypeKind::Typedef(typedef) => typedef.underlying_type().alignment(types),
-            TypeKind::Named(name) => types.get(name).map(|ty| ty.alignment(types)).unwrap_or(0),
+            TypeKind::Named(name) => {
+                types.get(name.clone()).map(|ty| ty.alignment(types)).unwrap_or(0)
+            }
         }
     }
 
@@ -332,6 +330,8 @@ impl TypeKind {
         size.next_multiple_of(alignment)
     }
 
+    #[deprecated(note = "use path().map(|p| p.name()) instead")]
+    #[allow(deprecated)]
     pub fn name(&self) -> Option<&str> {
         match self {
             TypeKind::Struct(struct_decl) => struct_decl.name(),
@@ -339,14 +339,26 @@ impl TypeKind {
             TypeKind::Union(union_decl) => union_decl.name(),
             TypeKind::Enum(enum_decl) => enum_decl.name(),
             TypeKind::Typedef(typedef) => Some(typedef.name()),
-            TypeKind::Named(name) => Some(name),
+            TypeKind::Named(path) => Some(path.name()),
+            _ => None,
+        }
+    }
+
+    pub fn path(&self) -> Option<&TypePath> {
+        match self {
+            TypeKind::Struct(struct_decl) => struct_decl.path(),
+            TypeKind::Class(class_decl) => class_decl.path(),
+            TypeKind::Union(union_decl) => union_decl.path(),
+            TypeKind::Enum(enum_decl) => enum_decl.path(),
+            TypeKind::Typedef(typedef) => Some(typedef.path()),
+            TypeKind::Named(path) => Some(path),
             _ => None,
         }
     }
 
     pub fn expand_named<'a>(&'a self, types: &'a Types) -> Option<&'a TypeKind> {
         match self {
-            TypeKind::Named(name) => types.get(name),
+            TypeKind::Named(name) => types.get(name.clone()),
             _ => Some(self),
         }
     }
@@ -363,7 +375,7 @@ impl TypeKind {
         match self {
             TypeKind::Struct(struct_decl) => Some(struct_decl),
             TypeKind::Class(class_decl) => Some(class_decl),
-            TypeKind::Named(name) => types.get(name)?.as_struct(types),
+            TypeKind::Named(name) => types.get(name.clone())?.as_struct(types),
             _ => None,
         }
     }

@@ -1,7 +1,7 @@
 use clang::SourceError;
 use snafu::Snafu;
 
-use crate::ExtendTypesError;
+use crate::{ExtendTypesError, TypePath};
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub(crate)))]
@@ -34,8 +34,8 @@ pub enum ParseError {
     UnsupportedType { message: String },
     #[snafu(display("Unsupported entity in {at}: {message}"))]
     UnsupportedEntity { at: String, message: String },
-    #[snafu(display("Failed to get field offset of {field_name} in {struct_name}: {error}"))]
-    Offsetof { field_name: String, struct_name: String, error: clang::OffsetofError },
+    #[snafu(display("Failed to get field offset of {field_name} in {struct_path}: {error}"))]
+    Offsetof { field_name: String, struct_path: TypePath, error: clang::OffsetofError },
     #[snafu(display("Failed to get size of type {type_name}: {error}"))]
     Sizeof { type_name: String, error: clang::SizeofError },
     #[snafu(display("Failed to get alignment of type {type_name}: {error}"))]

@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use type_crawler::{Env, EnvOptions, TypeCrawler, TypeKind};
+    use type_crawler::{Env, EnvOptions, TypeCrawler, TypeKind, TypePath};
 
     #[test]
     fn test_simple() {
@@ -73,7 +73,7 @@ mod tests {
         };
         assert_eq!(derived.size(), 8);
         assert_eq!(derived.alignment(), 4);
-        assert_eq!(derived.base_types(), &["Base"]);
+        assert_eq!(derived.base_types(), &[TypePath::global("Base")]);
         assert_eq!(derived.fields().len(), 1);
         assert_eq!(derived.fields()[0].name(), Some("derivedValue"));
         assert_eq!(derived.fields()[0].offset_bytes(), 4);
@@ -171,7 +171,7 @@ mod tests {
         let TypeKind::Named(pointee_type_name) = &**pointee_type else {
             panic!("Expected Named type, found: {:?}", pointee_type);
         };
-        assert_eq!(pointee_type_name, "ForwardDecl");
+        assert_eq!(pointee_type_name, &TypePath::global("ForwardDecl"));
     }
 
     #[test]
