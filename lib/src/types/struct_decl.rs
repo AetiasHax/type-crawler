@@ -3,8 +3,8 @@ use std::fmt::Display;
 use crate::{
     Env, Field, TypeKind, TypePath, Types,
     error::{
-        AlignofSnafu, InvalidAstSnafu, InvalidFieldsSnafu, OffsetofSnafu, ParseError, SizeofSnafu,
-        UnsupportedEntitySnafu, UnsupportedTypeSnafu,
+        BaseTypeNotDefinedSnafu, InvalidAstSnafu, InvalidFieldsSnafu, OffsetofSnafu, ParseError,
+        UnsupportedTypeSnafu,
     },
 };
 
@@ -17,6 +17,7 @@ pub struct StructDecl {
     size: usize,
     alignment: usize,
     is_class: bool,
+    is_virtual: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,48 +33,21 @@ impl StructDecl {
         env: &Env,
         types: &Types,
         path: Option<TypePath>,
-        ty: clang::Type,
+        node: &clang::Entity,
     ) -> Result<Self, ParseError> {
-        if ty.get_kind() != clang::TypeKind::Record {
-            return InvalidAstSnafu { message: format!("Expected Record, found: {ty:?}") }.fail();
-        }
-
-        let mut base_types = Vec::new();
-        let Some(node) = ty.get_declaration() else {
-            return InvalidAstSnafu { message: format!("Record type without declaration: {ty:?}") }
-                .fail();
-        };
-        for child in node.get_children() {
-            if child.get_kind() != clang::EntityKind::BaseSpecifier {
-                continue;
+        let node_kind = node.get_kind();
+        if !matches!(node_kind, clang::EntityKind::StructDecl | clang::EntityKind::ClassDecl) {
+            return InvalidAstSnafu {
+                message: format!("Expected StructDecl or ClassDecl, found: {node:?}"),
             }
-            let base_type = child.get_type().ok_or_else(|| {
-                InvalidAstSnafu { message: format!("BaseSpecifier without type: {child:?}") }
-                    .build()
-            })?;
-            let base_decl = base_type.get_declaration().ok_or_else(|| {
-                UnsupportedTypeSnafu {
-                    message: format!("Record base type without declaration: {ty:?}"),
-                }
-                .build()
-            })?;
-            base_types.push(TypePath::from_entity(&base_decl)?);
+            .fail();
         }
-
-        let is_class = node.get_kind() == clang::EntityKind::ClassDecl;
 
         let display_path = path.clone().unwrap_or("<anon>".into());
 
-        let record_fields = ty.get_fields().ok_or_else(|| {
-            UnsupportedTypeSnafu { message: format!("Record type without fields: {ty:?}") }.build()
-        })?;
-        if record_fields.is_empty() {
-            let declaration = ty.get_declaration().ok_or_else(|| {
-                InvalidAstSnafu { message: format!("Record type without declaration: {ty:?}") }
-                    .build()
-            })?;
-
-            let decl_children = declaration.get_children();
+        // Check for invalid fields
+        {
+            let decl_children = node.get_children();
             let invalid_fields = decl_children
                 .iter()
                 .enumerate()
@@ -93,42 +67,65 @@ impl StructDecl {
             }
         }
 
-        let mut fields = Vec::<StructField>::new();
-        for field in &record_fields {
-            match field.get_kind() {
+        let mut base_types = Vec::new();
+        let mut fields = Vec::new();
+        let mut is_virtual = false;
+        let mut alignment = 1;
+        for child in node.get_children() {
+            match child.get_kind() {
+                clang::EntityKind::BaseSpecifier => {
+                    let base_type = child.get_type().ok_or_else(|| {
+                        InvalidAstSnafu {
+                            message: format!("BaseSpecifier without type: {child:?}"),
+                        }
+                        .build()
+                    })?;
+                    let base_decl = base_type.get_declaration().ok_or_else(|| {
+                        UnsupportedTypeSnafu {
+                            message: format!("Record base type without declaration: {node:?}"),
+                        }
+                        .build()
+                    })?;
+                    let path = TypePath::from_entity(&base_decl)?;
+                    base_types.push(path.clone());
+                    let base_type = types.get(path.clone()).ok_or_else(|| {
+                        BaseTypeNotDefinedSnafu {
+                            type_name: display_path.to_string(),
+                            base_type_name: path.to_string(),
+                        }
+                        .build()
+                    })?;
+                    is_virtual |= base_type.is_virtual(types);
+                    alignment = alignment.max(base_type.alignment(types));
+                }
                 clang::EntityKind::FieldDecl => {
-                    let offset = Self::get_offset_of_field(&display_path, field)?;
-                    fields.push(StructField { offset, field: Field::new(env, types, field)? });
+                    let offset = Self::get_offset_of_field(&display_path, &child)?;
+                    let field = Field::new(env, types, &child)?;
+                    alignment = alignment.max(field.kind().alignment(types));
+                    fields.push(StructField { field, offset });
                 }
-                _ => {
-                    return UnsupportedEntitySnafu {
-                        at: format!("struct/class {display_path}"),
-                        message: format!(
-                            "Unsupported entity kind in struct/class: {:?}",
-                            field.get_kind()
-                        ),
-                    }
-                    .fail();
+                clang::EntityKind::Destructor | clang::EntityKind::Method => {
+                    is_virtual |= child.is_virtual_method();
                 }
+                _ => {}
             }
         }
 
-        let size = ty.get_sizeof().or_else(|e| {
-            if record_fields.is_empty() {
-                Ok(1)
-            } else {
-                SizeofSnafu { type_name: display_path.to_string(), error: e }.fail()
-            }
-        })?;
-        let alignment = ty.get_alignof().or_else(|e| {
-            if record_fields.is_empty() {
-                Ok(1)
-            } else {
-                AlignofSnafu { type_name: display_path.to_string(), error: e }.fail()
-            }
-        })?;
+        if is_virtual {
+            alignment = alignment.max(env.word_size().bytes());
+        }
 
-        Ok(Self { path, base_types, fields, size, alignment, is_class })
+        let size = if let Some(last_field) = fields.last() {
+            (last_field.offset + last_field.size_bits(types))
+                .div_ceil(8)
+                .next_multiple_of(alignment)
+        } else {
+            0
+        };
+
+        let is_class = node_kind == clang::EntityKind::ClassDecl;
+
+        Ok(Self { path, base_types, fields, size, alignment, is_class, is_virtual })
     }
 
     fn get_offset_of_field(
@@ -192,6 +189,10 @@ impl StructDecl {
     pub fn is_class(&self) -> bool {
         self.is_class
     }
+
+    pub fn is_virtual(&self) -> bool {
+        self.is_virtual
+    }
 }
 
 impl StructField {
@@ -225,6 +226,10 @@ impl StructField {
 
     pub fn size(&self, types: &Types) -> usize {
         self.field.size(types)
+    }
+
+    pub fn size_bits(&self, types: &Types) -> usize {
+        self.field.size_bits(types)
     }
 }
 

@@ -42,6 +42,10 @@ pub enum ParseError {
     Alignof { type_name: String, error: clang::AlignofError },
     #[snafu(display("Invalid fields in {struct_name}: {field_names:?}"))]
     InvalidFields { field_names: Vec<String>, struct_name: String },
+    #[snafu(display("Base type {base_type_name} for {type_name} is not defined"))]
+    BaseTypeNotDefined { type_name: String, base_type_name: String },
+    #[snafu(display("No clang::source::File associated with {path}"))]
+    NoAssociatedFile { path: String },
     #[snafu(transparent)]
     ExtendTypesError { source: ExtendTypesError },
 }

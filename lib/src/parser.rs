@@ -1,3 +1,5 @@
+use std::{collections::HashSet, path::PathBuf};
+
 use crate::{
     EnumDecl, Env, StructDecl, TypeKind, TypePath, Typedef, Types, UnionDecl,
     error::{InvalidAstSnafu, ParseError, UnsupportedEntitySnafu},
@@ -5,11 +7,13 @@ use crate::{
 
 pub struct Parser {
     types: Types,
+    crawled_files: HashSet<PathBuf>,
+    new_includes: Vec<PathBuf>,
 }
 
 impl Parser {
     pub fn new() -> Self {
-        Parser { types: Types::new() }
+        Parser { types: Types::new(), crawled_files: HashSet::new(), new_includes: Vec::new() }
     }
 
     pub fn into_types(self) -> Types {
@@ -18,21 +22,35 @@ impl Parser {
 
     fn parse_children(&mut self, env: &Env, node: &clang::Entity) -> Result<(), ParseError> {
         for child in node.get_children() {
-            self.parse(env, &child)?;
+            self.do_parse(env, &child)?;
         }
         Ok(())
     }
 
+    pub(crate) fn mark_as_crawled(&mut self, file: PathBuf) {
+        self.crawled_files.insert(file);
+    }
+
     pub(crate) fn parse(&mut self, env: &Env, node: &clang::Entity) -> Result<(), ParseError> {
+        debug_assert!(self.new_includes.is_empty());
+        self.do_parse(env, node)?;
+        for new_include in self.new_includes.extract_if(.., |_| true) {
+            self.crawled_files.insert(new_include);
+        }
+        Ok(())
+    }
+
+    fn do_parse(&mut self, env: &Env, node: &clang::Entity) -> Result<(), ParseError> {
         let kind = node.get_kind();
-        if kind != clang::EntityKind::NotImplemented
-            && !node.get_location().unwrap().is_in_main_file()
+        if let Some(location) = node.get_location()
+            && let Some(file) = &location.get_file_location().file
+            && self.crawled_files.contains(&file.get_path())
         {
-            // Skip entities not in the main file
+            // Skip already processed files
             return Ok(());
         }
 
-        match node.get_kind() {
+        match kind {
             clang::EntityKind::NotImplemented => self.parse_children(env, node)?,
             // typedef <underlying_type> <name>;
             clang::EntityKind::TypedefDecl => {
@@ -59,19 +77,12 @@ impl Parser {
             }
             clang::EntityKind::StructDecl => {
                 let path = TypePath::from_entity(node)?;
-                let ty = node.get_type().ok_or_else(|| {
-                    InvalidAstSnafu { message: format!("StructDecl without type: {node:?}") }
-                        .build()
-                })?;
-                let struct_decl = StructDecl::new(env, &self.types, Some(path), ty)?;
+                let struct_decl = StructDecl::new(env, &self.types, Some(path), node)?;
                 self.types.add_type(TypeKind::Struct(struct_decl))?;
             }
             clang::EntityKind::ClassDecl => {
                 let path = TypePath::from_entity(node)?;
-                let ty = node.get_type().ok_or_else(|| {
-                    InvalidAstSnafu { message: format!("ClassDecl without type: {node:?}") }.build()
-                })?;
-                let class_decl = StructDecl::new(env, &self.types, Some(path), ty)?;
+                let class_decl = StructDecl::new(env, &self.types, Some(path), node)?;
                 self.types.add_type(TypeKind::Class(class_decl))?;
             }
             clang::EntityKind::Namespace => {
@@ -96,6 +107,14 @@ impl Parser {
             clang::EntityKind::VarDecl => {}
             clang::EntityKind::UnexposedDecl => {}
             clang::EntityKind::UsingDeclaration => {}
+            clang::EntityKind::MacroDefinition => {}
+            clang::EntityKind::InclusionDirective => {
+                let file = node.get_file().ok_or_else(|| {
+                    InvalidAstSnafu { message: "InclusionDirective without a file" }.build()
+                })?;
+                self.new_includes.push(file.get_path());
+            }
+            clang::EntityKind::MacroExpansion => {}
             _ => {
                 return UnsupportedEntitySnafu {
                     at: "global scope".to_string(),

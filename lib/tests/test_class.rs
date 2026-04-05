@@ -4,14 +4,16 @@ mod tests {
 
     #[test]
     fn test_virtual() {
-        let crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
-        let types = crawler.parse_file("tests/class/virtual.hpp").unwrap();
+        let mut crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
+        crawler.parse_file("tests/class/virtual.hpp").unwrap();
+        let types = crawler.into_types();
         assert_eq!(types.len(), 1);
 
         let TypeKind::Class(virtual_class) = types.get("VirtualClass").unwrap() else {
             panic!("Expected Class type");
         };
         assert!(virtual_class.is_class());
+        assert!(virtual_class.is_virtual());
 
         assert_eq!(virtual_class.size(), 16);
         assert_eq!(virtual_class.alignment(), 8);

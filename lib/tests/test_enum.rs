@@ -4,8 +4,9 @@ mod tests {
 
     #[test]
     fn test_simple() {
-        let crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
-        let types = crawler.parse_file("tests/enum/simple.h").unwrap();
+        let mut crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
+        crawler.parse_file("tests/enum/simple.h").unwrap();
+        let types = crawler.into_types();
         assert_eq!(types.len(), 1);
 
         let enum_decl = types.get("MyEnum").unwrap();
@@ -30,8 +31,9 @@ mod tests {
 
     #[test]
     fn test_short_enums() {
-        let crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
-        let types = crawler.parse_file("tests/enum/short.h").unwrap();
+        let mut crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
+        crawler.parse_file("tests/enum/short.h").unwrap();
+        let types = crawler.into_types();
         assert_eq!(types.len(), 4);
 
         let size1 = types.get("Size1").unwrap();
@@ -61,10 +63,11 @@ mod tests {
 
     #[test]
     fn test_no_short_enums() {
-        let crawler =
+        let mut crawler =
             TypeCrawler::new(Env::new(EnvOptions { short_enums: false, ..EnvOptions::default() }))
                 .unwrap();
-        let types = crawler.parse_file("tests/enum/short.h").unwrap();
+        crawler.parse_file("tests/enum/short.h").unwrap();
+        let types = crawler.into_types();
         assert_eq!(types.len(), 4);
 
         let size1 = types.get("Size1").unwrap();
@@ -94,8 +97,9 @@ mod tests {
 
     #[test]
     fn test_expr() {
-        let crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
-        let types = crawler.parse_file("tests/enum/expr.h").unwrap();
+        let mut crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
+        crawler.parse_file("tests/enum/expr.h").unwrap();
+        let types = crawler.into_types();
         assert_eq!(types.len(), 2);
 
         let flags_enum = types.get("Flags").unwrap();

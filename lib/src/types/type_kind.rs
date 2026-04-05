@@ -219,11 +219,11 @@ impl TypeKind {
                 })?;
                 match node.get_kind() {
                     clang::EntityKind::StructDecl => {
-                        let struct_decl = StructDecl::new(env, types, None, ty)?;
+                        let struct_decl = StructDecl::new(env, types, None, &node)?;
                         Ok(TypeKind::Struct(struct_decl))
                     }
                     clang::EntityKind::ClassDecl => {
-                        let struct_decl = StructDecl::new(env, types, None, ty)?;
+                        let struct_decl = StructDecl::new(env, types, None, &node)?;
                         Ok(TypeKind::Class(struct_decl))
                     }
                     clang::EntityKind::UnionDecl => {
@@ -377,6 +377,17 @@ impl TypeKind {
             TypeKind::Class(class_decl) => Some(class_decl),
             TypeKind::Named(name) => types.get(name.clone())?.as_struct(types),
             _ => None,
+        }
+    }
+
+    pub fn is_virtual(&self, types: &Types) -> bool {
+        match self {
+            TypeKind::Struct(struct_decl) => struct_decl.is_virtual(),
+            TypeKind::Class(class_decl) => class_decl.is_virtual(),
+            TypeKind::Named(type_path) => {
+                types.get(type_path.clone()).map(|t| t.is_virtual(types)).unwrap_or(false)
+            }
+            _ => false,
         }
     }
 }

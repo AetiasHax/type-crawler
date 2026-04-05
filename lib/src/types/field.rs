@@ -8,11 +8,11 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Field {
-    name: Option<String>,
-    kind: TypeKind,
-    constant: bool,
-    volatile: bool,
-    bit_field_width: Option<u8>,
+    pub(crate) name: Option<String>,
+    pub(crate) kind: TypeKind,
+    pub(crate) constant: bool,
+    pub(crate) volatile: bool,
+    pub(crate) bit_field_width: Option<u8>,
 }
 
 impl Field {
@@ -65,6 +65,10 @@ impl Field {
         self.bit_field_width()
             .map(|w| w.div_ceil(8) as usize)
             .unwrap_or_else(|| self.kind.size(types))
+    }
+
+    pub fn size_bits(&self, types: &Types) -> usize {
+        self.bit_field_width().map(|w| w as usize).unwrap_or_else(|| self.kind.size(types) * 8)
     }
 }
 

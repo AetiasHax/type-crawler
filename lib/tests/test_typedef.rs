@@ -4,8 +4,9 @@ mod tests {
 
     #[test]
     fn test_simple() {
-        let crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
-        let types = crawler.parse_file("tests/typedef/simple.h").unwrap();
+        let mut crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
+        crawler.parse_file("tests/typedef/simple.h").unwrap();
+        let types = crawler.into_types();
         assert_eq!(types.len(), 4);
 
         let TypeKind::Typedef(u32_ty) = types.get("u32").unwrap() else {

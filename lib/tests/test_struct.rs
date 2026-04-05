@@ -4,8 +4,9 @@ mod tests {
 
     #[test]
     fn test_simple() {
-        let crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
-        let types = crawler.parse_file("tests/struct/simple.h").unwrap();
+        let mut crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
+        crawler.parse_file("tests/struct/simple.h").unwrap();
+        let types = crawler.into_types();
         assert_eq!(types.len(), 1);
 
         let my_struct = types.get("MyStruct").unwrap();
@@ -13,6 +14,7 @@ mod tests {
             panic!("Expected Struct type, found: {my_struct:?}");
         };
         assert!(!my_struct.is_class());
+        assert!(!my_struct.is_virtual());
         assert_eq!(my_struct.size(), 8);
         assert_eq!(my_struct.alignment(), 4);
         assert!(my_struct.base_types().is_empty());
@@ -25,8 +27,9 @@ mod tests {
 
     #[test]
     fn test_bitfield() {
-        let crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
-        let types = crawler.parse_file("tests/struct/bitfield.h").unwrap();
+        let mut crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
+        crawler.parse_file("tests/struct/bitfield.h").unwrap();
+        let types = crawler.into_types();
         assert_eq!(types.len(), 1);
 
         let bitfield = types.get("BitField").unwrap();
@@ -50,8 +53,9 @@ mod tests {
 
     #[test]
     fn test_inheritance() {
-        let crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
-        let types = crawler.parse_file("tests/struct/inheritance.hpp").unwrap();
+        let mut crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
+        crawler.parse_file("tests/struct/inheritance.hpp").unwrap();
+        let types = crawler.into_types();
         assert_eq!(types.len(), 2);
 
         let base = types.get("Base").unwrap();
@@ -90,8 +94,9 @@ mod tests {
 
     #[test]
     fn test_basic_types() {
-        let crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
-        let types = crawler.parse_file("tests/struct/basic_types.hpp").unwrap();
+        let mut crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
+        crawler.parse_file("tests/struct/basic_types.hpp").unwrap();
+        let types = crawler.into_types();
         assert_eq!(types.len(), 1);
 
         let basic_types = types.get("BasicTypes").unwrap();
@@ -100,55 +105,62 @@ mod tests {
         };
         assert_eq!(basic_types.fields().len(), 27);
 
-        type FieldTest = (&'static str, fn(&TypeKind) -> bool);
+        type FieldTest = (&'static str, usize, fn(&TypeKind) -> bool);
         let fields: &[FieldTest] = &[
-            ("b", |k| k == &TypeKind::Bool),
+            ("b", 0x0, |k| k == &TypeKind::Bool),
             // Chars
-            ("ch", |k| k == &TypeKind::S8),
-            ("uch", |k| k == &TypeKind::U8),
-            ("ch16", |k| k == &TypeKind::Char16),
-            ("ch32", |k| k == &TypeKind::Char32),
-            ("wch", |k| matches!(k, &TypeKind::WChar { .. })),
+            ("ch", 0x1, |k| k == &TypeKind::S8),
+            ("uch", 0x2, |k| k == &TypeKind::U8),
+            ("ch16", 0x4, |k| k == &TypeKind::Char16),
+            ("ch32", 0x8, |k| k == &TypeKind::Char32),
+            ("wch", 0xc, |k| matches!(k, &TypeKind::WChar { .. })),
             // Integers
-            ("s16", |k| k == &TypeKind::S16),
-            ("u16", |k| k == &TypeKind::U16),
-            ("s32", |k| k == &TypeKind::S32),
-            ("u32", |k| k == &TypeKind::U32),
-            ("ssize", |k| matches!(k, &TypeKind::SSize { .. })),
-            ("usize", |k| matches!(k, &TypeKind::USize { .. })),
-            ("s64", |k| k == &TypeKind::S64),
-            ("u64", |k| k == &TypeKind::U64),
+            ("s16", 0x10, |k| k == &TypeKind::S16),
+            ("u16", 0x12, |k| k == &TypeKind::U16),
+            ("s32", 0x14, |k| k == &TypeKind::S32),
+            ("u32", 0x18, |k| k == &TypeKind::U32),
+            ("ssize", 0x20, |k| matches!(k, &TypeKind::SSize { .. })),
+            ("usize", 0x28, |k| matches!(k, &TypeKind::USize { .. })),
+            ("s64", 0x30, |k| k == &TypeKind::S64),
+            ("u64", 0x38, |k| k == &TypeKind::U64),
             // Floats
-            ("f32", |k| k == &TypeKind::F32),
-            ("f64", |k| k == &TypeKind::F64),
-            ("ld", |k| matches!(k, &TypeKind::LongDouble { .. })),
+            ("f32", 0x40, |k| k == &TypeKind::F32),
+            ("f64", 0x48, |k| k == &TypeKind::F64),
+            ("ld", 0x50, |k| matches!(k, &TypeKind::LongDouble { .. })),
             // References
-            ("ref", |k| matches!(k, &TypeKind::Reference { .. })),
-            ("ptr", |k| matches!(k, &TypeKind::Pointer { .. })),
-            ("funcptr", |k| matches!(k, &TypeKind::Pointer { .. })),
+            ("ref", 0x60, |k| matches!(k, &TypeKind::Reference { .. })),
+            ("ptr", 0x68, |k| matches!(k, &TypeKind::Pointer { .. })),
+            ("funcptr", 0x70, |k| matches!(k, &TypeKind::Pointer { .. })),
             (
                 "memptr",
+                0x78,
                 |k| matches!(&k, &TypeKind::MemberPointer { record_name, .. } if record_name == "BasicTypes"),
             ),
             (
                 "memfuncptr",
+                0x80,
                 |k| matches!(&k, &TypeKind::MemberPointer { record_name, .. } if record_name == "BasicTypes"),
             ),
-            ("arr", |k| matches!(k, &TypeKind::Array { size: Some(10), .. })),
+            ("arr", 0x90, |k| matches!(k, &TypeKind::Array { size: Some(10), .. })),
             // Compounds
-            ("e", |k| matches!(k, &TypeKind::Enum { .. })),
-            ("s", |k| matches!(k, &TypeKind::Struct { .. })),
-            ("c", |k| matches!(k, &TypeKind::Class { .. })),
-            ("u", |k| matches!(k, &TypeKind::Union { .. })),
+            ("e", 0x9a, |k| matches!(k, &TypeKind::Enum { .. })),
+            ("s", 0x9c, |k| matches!(k, &TypeKind::Struct { .. })),
+            ("c", 0xa0, |k| matches!(k, &TypeKind::Class { .. })),
+            ("u", 0xa4, |k| matches!(k, &TypeKind::Union { .. })),
         ];
 
-        for (i, field) in fields.iter().enumerate() {
+        for (i, (name, offset, test)) in fields.iter().enumerate() {
             let struct_field = &basic_types.fields()[i];
-            assert_eq!(struct_field.name(), Some(field.0), "Field name mismatch for field {i}");
+            assert_eq!(struct_field.name(), Some(*name), "Field name mismatch for field {i}");
+            assert_eq!(
+                struct_field.offset_bytes(),
+                *offset,
+                "Field offset mismatch for field {name}"
+            );
             assert!(
-                (field.1)(struct_field.kind()),
+                test(struct_field.kind()),
                 "Field type mismatch for field {}: found {:?}",
-                field.0,
+                name,
                 struct_field.kind()
             );
         }
@@ -156,8 +168,9 @@ mod tests {
 
     #[test]
     fn test_forward_decl() {
-        let crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
-        let types = crawler.parse_file("tests/struct/forward_decl.h").unwrap();
+        let mut crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
+        crawler.parse_file("tests/struct/forward_decl.h").unwrap();
+        let types = crawler.into_types();
         assert_eq!(types.len(), 2);
 
         let my_struct = types.get("MyStruct").unwrap();
@@ -176,8 +189,9 @@ mod tests {
 
     #[test]
     fn test_incomplete_array() {
-        let crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
-        let types = crawler.parse_file("tests/struct/incomplete_array.h").unwrap();
+        let mut crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
+        crawler.parse_file("tests/struct/incomplete_array.h").unwrap();
+        let types = crawler.into_types();
         assert_eq!(types.len(), 1);
 
         let my_struct = types.get("MyStruct").unwrap();
