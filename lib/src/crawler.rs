@@ -4,12 +4,11 @@ use clang::Clang;
 
 use crate::{
     Env, Types,
-    error::{
-        AddIncludePathError, ClangInitSnafu, DoesNotExistSnafu, FileNotFoundSnafu,
-        NotADirectorySnafu, ParseError, TypeCrawlerError,
-    },
+    error::{ExnExt as _, ResultExt as _, bail_str, error_type},
     parser::Parser,
 };
+
+error_type!(TypeCrawlerError);
 
 pub struct TypeCrawler {
     clang: Clang,
@@ -19,8 +18,11 @@ pub struct TypeCrawler {
 }
 
 impl TypeCrawler {
-    pub fn new(env: Env) -> Result<Self, TypeCrawlerError> {
-        let clang = Clang::new().map_err(|message| ClangInitSnafu { message }.build())?;
+    pub fn new(env: Env) -> exn::Result<Self, TypeCrawlerError> {
+        let clang = match Clang::new() {
+            Ok(it) => it,
+            Err(err) => bail_str!("Failed to initialize clang: {}", err),
+        };
         Ok(Self::from_clang(clang, env))
     }
 
@@ -32,13 +34,16 @@ impl TypeCrawler {
         self.ast_parser.into_types()
     }
 
-    pub fn add_include_path<P: AsRef<Path>>(&mut self, path: P) -> Result<(), AddIncludePathError> {
+    pub fn add_include_path<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+    ) -> exn::Result<(), TypeCrawlerError> {
         let path = path.as_ref();
         if !path.exists() {
-            return DoesNotExistSnafu { path: path.display().to_string() }.fail();
+            bail_str!("Path does not exist: {}", path.display());
         }
         if !path.is_dir() {
-            return NotADirectorySnafu { path: path.display().to_string() }.fail();
+            bail_str!("Path is not a directory: {}", path.display());
         }
 
         let path_buf = path.to_path_buf();
@@ -61,10 +66,13 @@ impl TypeCrawler {
             .collect()
     }
 
-    pub fn parse_file<P: AsRef<Path>>(&mut self, file_path: P) -> Result<(), ParseError> {
+    pub fn parse_file<P: AsRef<Path>>(
+        &mut self,
+        file_path: P,
+    ) -> exn::Result<(), TypeCrawlerError> {
         let path = file_path.as_ref();
         if !path.exists() {
-            return FileNotFoundSnafu { name: path.display().to_string() }.fail();
+            bail_str!("File not found: {}", path.display());
         }
 
         let index = clang::Index::new(&self.clang, false, false);
@@ -78,24 +86,33 @@ impl TypeCrawler {
             arguments.push("c++".into());
         }
         clang_parser.arguments(&arguments);
-        let unit = clang_parser.parse()?;
+        let unit = clang_parser
+            .parse()
+            .or_raise_str(|| format!("Failed to parse file in libclang: {}, ", path.display()))?;
 
         let root = unit.get_entity();
 
-        self.ast_parser.parse(&self.env, &root)?;
+        self.ast_parser
+            .parse(&self.env, &root)
+            .or_raise_str(|| format!("Failed to parse AST of file: {}", path.display()))?;
         self.ast_parser.mark_as_crawled(path.to_path_buf());
 
         Ok(())
     }
 
-    pub fn print_file_ast<P: AsRef<Path>>(&self, file_path: P) -> Result<(), ParseError> {
+    pub fn print_file_ast<P: AsRef<Path>>(
+        &self,
+        file_path: P,
+    ) -> exn::Result<(), TypeCrawlerError> {
         let path = file_path.as_ref();
         let index = clang::Index::new(&self.clang, false, false);
         let mut parser = index.parser(path);
         parser.skip_function_bodies(true);
         parser.detailed_preprocessing_record(true);
         parser.arguments(&self.arguments());
-        let unit = parser.parse()?;
+        let unit = parser
+            .parse()
+            .or_raise_str(|| format!("Failed to parse file in libclang: {}, ", path.display()))?;
 
         let root = unit.get_entity();
         Self::display_ast(&root, 0, false);

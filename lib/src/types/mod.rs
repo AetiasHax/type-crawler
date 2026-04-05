@@ -2,16 +2,18 @@ mod enum_decl;
 mod field;
 mod path;
 mod struct_decl;
+mod template_class;
 mod type_kind;
 mod typedef;
 mod union_decl;
 
 pub use enum_decl::{EnumConstant, EnumDecl};
+use exn::bail;
 pub use field::Field;
 use indexmap::IndexMap;
 pub use path::TypePath;
-use snafu::Snafu;
 pub use struct_decl::{StructDecl, StructField};
+pub use template_class::TemplateClass;
 pub use type_kind::TypeKind;
 pub use typedef::Typedef;
 pub use union_decl::UnionDecl;
@@ -20,20 +22,24 @@ pub use union_decl::UnionDecl;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Types {
     types: IndexMap<TypePath, TypeKind>,
+    template_classes: IndexMap<TypePath, TemplateClass>,
 }
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, derive_more::Display)]
 pub enum ExtendTypesError {
-    #[snafu(display("Type with the same name but different definitions:\n{left}\nand\n{right}"))]
+    #[display("Type with the same name but different definitions:\n{left}\nand\n{right}")]
     ConflictingTypes { left: Box<TypeKind>, right: Box<TypeKind> },
+    #[display("Template class with the same name but different definitions:\n{left}\nand\n{right}")]
+    ConflictingTemplateClasses { left: Box<TemplateClass>, right: Box<TemplateClass> },
 }
+impl std::error::Error for ExtendTypesError {}
 
 impl Types {
     pub fn new() -> Self {
         Default::default()
     }
 
-    pub fn add_type(&mut self, kind: TypeKind) -> Result<bool, ExtendTypesError> {
+    pub fn add_type(&mut self, kind: TypeKind) -> exn::Result<bool, ExtendTypesError> {
         if let TypeKind::Typedef(typedef) = &kind
             && let TypeKind::Named(path) = typedef.underlying_type()
             && typedef.path() == path
@@ -49,11 +55,10 @@ impl Types {
                     if current.is_forward_decl() {
                         entry.insert(kind);
                     } else if !kind.is_forward_decl() && current != &kind {
-                        return ConflictingTypesSnafu {
+                        bail!(ExtendTypesError::ConflictingTypes {
                             left: Box::new(current.clone()),
                             right: Box::new(kind),
-                        }
-                        .fail();
+                        });
                     }
                 }
                 indexmap::map::Entry::Vacant(entry) => {
@@ -82,7 +87,7 @@ impl Types {
         self.types.get(&path.into())
     }
 
-    pub fn extend(&mut self, other: Types) -> Result<(), ExtendTypesError> {
+    pub fn extend(&mut self, other: Types) -> exn::Result<(), ExtendTypesError> {
         for (name, value) in other.types {
             match self.types.entry(name.clone()) {
                 indexmap::map::Entry::Occupied(mut entry) => {
@@ -90,11 +95,10 @@ impl Types {
                     if current.is_forward_decl() {
                         entry.insert(value);
                     } else if !value.is_forward_decl() && current != &value {
-                        return ConflictingTypesSnafu {
+                        bail!(ExtendTypesError::ConflictingTypes {
                             left: Box::new(current.clone()),
                             right: Box::new(value),
-                        }
-                        .fail();
+                        });
                     }
                 }
                 indexmap::map::Entry::Vacant(entry) => {
@@ -103,5 +107,31 @@ impl Types {
             }
         }
         Ok(())
+    }
+
+    pub fn add_template_class(
+        &mut self,
+        template_class: TemplateClass,
+    ) -> exn::Result<bool, ExtendTypesError> {
+        let path = template_class.path();
+        match self.template_classes.entry(path.clone()) {
+            indexmap::map::Entry::Occupied(entry) => {
+                let current = entry.get();
+                if current != &template_class {
+                    bail!(ExtendTypesError::ConflictingTemplateClasses {
+                        left: Box::new(current.clone()),
+                        right: Box::new(template_class),
+                    });
+                }
+            }
+            indexmap::map::Entry::Vacant(entry) => {
+                entry.insert(template_class);
+            }
+        }
+        Ok(true)
+    }
+
+    pub fn template_classes(&self) -> impl Iterator<Item = &TemplateClass> {
+        self.template_classes.values()
     }
 }

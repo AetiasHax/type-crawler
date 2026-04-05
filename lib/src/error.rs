@@ -1,51 +1,107 @@
-use clang::SourceError;
-use snafu::Snafu;
+use std::borrow::Cow;
 
-use crate::{ExtendTypesError, TypePath};
+use exn::{Exn, OptionExt as _, ResultExt as _};
 
-#[derive(Debug, Snafu)]
-#[snafu(visibility(pub(crate)))]
-pub enum TypeCrawlerError {
-    #[snafu(display("Failed to initialize clang: {message}"))]
-    ClangInit { message: String },
+use crate::TypePath;
+
+macro_rules! error_type {
+    ($name:ident) => {
+        #[derive(Debug, derive_more::Display, derive_more::From)]
+        pub struct $name(std::borrow::Cow<'static, str>);
+        impl std::error::Error for $name {}
+    };
+}
+pub(crate) use error_type;
+
+pub trait ExnExt<TData> {
+    #[track_caller]
+    fn or_raise_str<TNewErr, TStr, Cb>(self, cb: Cb) -> exn::Result<TData, TNewErr>
+    where
+        TNewErr: std::error::Error + Send + Sync + From<Cow<'static, str>>,
+        TStr: Into<Cow<'static, str>>,
+        Cb: FnOnce() -> TStr;
 }
 
-#[derive(Debug, Snafu)]
-#[snafu(visibility(pub(crate)))]
-pub enum AddIncludePathError {
-    #[snafu(display("Path does not exist: {path}"))]
-    DoesNotExist { path: String },
-    #[snafu(display("Path is not a directory: {path}"))]
-    NotADirectory { path: String },
+pub trait ResultExt<TData> {
+    #[track_caller]
+    fn or_raise_str<TNewErr, TStr, Cb>(self, cb: Cb) -> exn::Result<TData, TNewErr>
+    where
+        TNewErr: std::error::Error + Send + Sync + From<Cow<'static, str>>,
+        TStr: Into<Cow<'static, str>>,
+        Cb: FnOnce() -> TStr;
 }
 
-#[derive(Debug, Snafu)]
-#[snafu(visibility(pub(crate)))]
-pub enum ParseError {
-    #[snafu(display("File not found: {name}"))]
-    FileNotFound { name: String },
-    #[snafu(display("Failed to read file: {path}"))]
-    ReadError { path: String },
-    #[snafu(transparent)]
-    ParseError { source: SourceError },
-    #[snafu(display("Invalid AST: {message}"))]
-    InvalidAst { message: String },
-    #[snafu(display("Unsupported type: {message}"))]
-    UnsupportedType { message: String },
-    #[snafu(display("Unsupported entity in {at}: {message}"))]
-    UnsupportedEntity { at: String, message: String },
-    #[snafu(display("Failed to get field offset of {field_name} in {struct_path}: {error}"))]
-    Offsetof { field_name: String, struct_path: TypePath, error: clang::OffsetofError },
-    #[snafu(display("Failed to get size of type {type_name}: {error}"))]
-    Sizeof { type_name: String, error: clang::SizeofError },
-    #[snafu(display("Failed to get alignment of type {type_name}: {error}"))]
-    Alignof { type_name: String, error: clang::AlignofError },
-    #[snafu(display("Invalid fields in {struct_name}: {field_names:?}"))]
-    InvalidFields { field_names: Vec<String>, struct_name: String },
-    #[snafu(display("Base type {base_type_name} for {type_name} is not defined"))]
-    BaseTypeNotDefined { type_name: String, base_type_name: String },
-    #[snafu(display("No clang::source::File associated with {path}"))]
-    NoAssociatedFile { path: String },
-    #[snafu(transparent)]
-    ExtendTypesError { source: ExtendTypesError },
+pub trait OptionExt<TData> {
+    #[track_caller]
+    fn ok_or_raise_str<TErr, TStr, Cb>(self, cb: Cb) -> exn::Result<TData, TErr>
+    where
+        TErr: std::error::Error + Send + Sync + From<Cow<'static, str>>,
+        TStr: Into<Cow<'static, str>>,
+        Cb: FnOnce() -> TStr;
 }
+
+impl<TData, TErr> ExnExt<TData> for Result<TData, Exn<TErr>>
+where
+    TErr: std::error::Error + Send + Sync,
+{
+    #[track_caller]
+    fn or_raise_str<TNewErr, TStr, Cb>(self, cb: Cb) -> exn::Result<TData, TNewErr>
+    where
+        TNewErr: std::error::Error + Send + Sync + From<Cow<'static, str>>,
+        TStr: Into<Cow<'static, str>>,
+        Cb: FnOnce() -> TStr,
+    {
+        self.or_raise(|| TNewErr::from(cb().into()))
+    }
+}
+
+impl<TData, TErr> ResultExt<TData> for Result<TData, TErr>
+where
+    TErr: std::error::Error + Send + Sync + 'static,
+{
+    #[track_caller]
+    fn or_raise_str<TNewErr, TStr, Cb>(self, cb: Cb) -> exn::Result<TData, TNewErr>
+    where
+        TNewErr: std::error::Error + Send + Sync + From<Cow<'static, str>>,
+        TStr: Into<Cow<'static, str>>,
+        Cb: FnOnce() -> TStr,
+    {
+        self.or_raise(|| TNewErr::from(cb().into()))
+    }
+}
+
+impl<TData> OptionExt<TData> for Option<TData> {
+    #[track_caller]
+    fn ok_or_raise_str<TErr, TStr, Cb>(self, cb: Cb) -> exn::Result<TData, TErr>
+    where
+        TErr: std::error::Error + Send + Sync + From<Cow<'static, str>>,
+        TStr: Into<Cow<'static, str>>,
+        Cb: FnOnce() -> TStr,
+    {
+        self.ok_or_raise(|| TErr::from(cb().into()))
+    }
+}
+
+macro_rules! bail_str {
+    ($msg:literal) => {
+        return Err(exn::Exn::new(<std::borrow::Cow<'static, str>>::from($msg).into()))
+    };
+    ($($arg:tt)*) => {
+        return Err(exn::Exn::new(<std::borrow::Cow<'static, str>>::from(format!($($arg)*)).into()))
+    }
+}
+pub(crate) use bail_str;
+
+macro_rules! ensure_str {
+    ($cond:expr, $msg:literal) => {
+        if !bool::from($cond) {
+            return Err(exn::Exn::new(<std::borrow::Cow<'static, str>>::from($msg).into()))
+        }
+    };
+    ($cond:expr, $($arg:tt)*) => {
+        if !bool::from($cond) {
+            return Err(exn::Exn::new(<std::borrow::Cow<'static, str>>::from(format!($($arg)*)).into()))
+        }
+    }
+}
+pub(crate) use ensure_str;

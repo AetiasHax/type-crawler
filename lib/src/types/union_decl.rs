@@ -2,11 +2,10 @@ use std::fmt::Display;
 
 use crate::{
     Env, Field, TypePath, Types,
-    error::{
-        AlignofSnafu, InvalidAstSnafu, InvalidFieldsSnafu, ParseError, SizeofSnafu,
-        UnsupportedEntitySnafu, UnsupportedTypeSnafu,
-    },
+    error::{ExnExt, OptionExt, ResultExt, bail_str, error_type},
 };
+
+error_type!(UnionDeclError);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -23,21 +22,19 @@ impl UnionDecl {
         types: &Types,
         path: Option<TypePath>,
         ty: clang::Type,
-    ) -> Result<Self, ParseError> {
+    ) -> exn::Result<Self, UnionDeclError> {
         if ty.get_kind() != clang::TypeKind::Record {
-            return InvalidAstSnafu { message: format!("Expected Record, found: {ty:?}") }.fail();
+            bail_str!("Expected Record, found: {:?}", ty);
         }
 
         let display_name = path.clone().unwrap_or("<anon>".into());
 
-        let record_fields = ty.get_fields().ok_or_else(|| {
-            UnsupportedTypeSnafu { message: format!("Record type without fields: {ty:?}") }.build()
-        })?;
+        let record_fields =
+            ty.get_fields().ok_or_raise_str(|| format!("Record type without fields: {:?}", ty))?;
         if record_fields.is_empty() {
-            let declaration = ty.get_declaration().ok_or_else(|| {
-                InvalidAstSnafu { message: format!("Record type without declaration: {ty:?}") }
-                    .build()
-            })?;
+            let declaration = ty
+                .get_declaration()
+                .ok_or_raise_str(|| format!("Record type without declaration: {:?}", ty))?;
 
             let decl_children = declaration.get_children();
             let invalid_fields = decl_children
@@ -48,14 +45,14 @@ impl UnionDecl {
                 })
                 .collect::<Vec<_>>();
             if !invalid_fields.is_empty() {
-                return InvalidFieldsSnafu {
-                    field_names: invalid_fields
+                bail_str!(
+                    "Invalid fields in {}: {:?}",
+                    display_name,
+                    invalid_fields
                         .iter()
                         .map(|(i, c)| c.get_name().unwrap_or_else(|| format!("<index#{i}>")))
-                        .collect::<Vec<_>>(),
-                    struct_name: display_name.to_string(),
-                }
-                .fail();
+                        .collect::<Vec<_>>()
+                );
             }
         }
 
@@ -63,17 +60,12 @@ impl UnionDecl {
         for field in &record_fields {
             match field.get_kind() {
                 clang::EntityKind::FieldDecl => {
-                    fields.push(Field::new(env, types, field)?);
+                    fields.push(Field::new(env, types, field).or_raise_str(|| {
+                        format!("Failed to parse AST for field in union {}", display_name)
+                    })?);
                 }
                 _ => {
-                    return UnsupportedEntitySnafu {
-                        at: format!("union {display_name}"),
-                        message: format!(
-                            "Unsupported entity kind in union: {:?}",
-                            field.get_kind()
-                        ),
-                    }
-                    .fail();
+                    bail_str!("Unsupported entity in union: {:?}", field);
                 }
             }
         }
@@ -82,14 +74,14 @@ impl UnionDecl {
             if record_fields.is_empty() {
                 Ok(1)
             } else {
-                SizeofSnafu { type_name: display_name.to_string(), error: e }.fail()
+                Err(e).or_raise_str(|| format!("Failed to get size of union {}", display_name))
             }
         })?;
         let alignment = ty.get_alignof().or_else(|e| {
             if record_fields.is_empty() {
                 Ok(1)
             } else {
-                AlignofSnafu { type_name: display_name.to_string(), error: e }.fail()
+                Err(e).or_raise_str(|| format!("Failed to get alignment of union {}", display_name))
             }
         })?;
 

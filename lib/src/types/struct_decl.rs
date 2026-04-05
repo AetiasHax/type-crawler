@@ -2,18 +2,17 @@ use std::fmt::Display;
 
 use crate::{
     Env, Field, TypeKind, TypePath, Types,
-    error::{
-        BaseTypeNotDefinedSnafu, InvalidAstSnafu, InvalidFieldsSnafu, OffsetofSnafu, ParseError,
-        UnsupportedTypeSnafu,
-    },
+    error::{ExnExt as _, OptionExt as _, ResultExt as _, bail_str, error_type},
 };
+
+error_type!(StructDeclError);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StructDecl {
-    pub(crate) path: Option<TypePath>,
-    pub(crate) base_types: Vec<TypePath>,
-    pub(crate) fields: Vec<StructField>,
+    path: Option<TypePath>,
+    base_types: Vec<TypePath>,
+    fields: Vec<StructField>,
     size: usize,
     alignment: usize,
     is_class: bool,
@@ -34,13 +33,10 @@ impl StructDecl {
         types: &Types,
         path: Option<TypePath>,
         node: &clang::Entity,
-    ) -> Result<Self, ParseError> {
+    ) -> exn::Result<Self, StructDeclError> {
         let node_kind = node.get_kind();
         if !matches!(node_kind, clang::EntityKind::StructDecl | clang::EntityKind::ClassDecl) {
-            return InvalidAstSnafu {
-                message: format!("Expected StructDecl or ClassDecl, found: {node:?}"),
-            }
-            .fail();
+            bail_str!("Expected StructDecl or ClassDecl, found: {:?}", node);
         }
 
         let display_path = path.clone().unwrap_or("<anon>".into());
@@ -56,14 +52,14 @@ impl StructDecl {
                 })
                 .collect::<Vec<_>>();
             if !invalid_fields.is_empty() {
-                return InvalidFieldsSnafu {
-                    field_names: invalid_fields
+                bail_str!(
+                    "Invalid fields in {}: {:?}",
+                    display_path,
+                    invalid_fields
                         .iter()
                         .map(|(i, c)| c.get_name().unwrap_or_else(|| format!("<index#{i}>")))
-                        .collect::<Vec<_>>(),
-                    struct_name: display_path.to_string(),
-                }
-                .fail();
+                        .collect::<Vec<_>>()
+                );
             }
         }
 
@@ -74,33 +70,30 @@ impl StructDecl {
         for child in node.get_children() {
             match child.get_kind() {
                 clang::EntityKind::BaseSpecifier => {
-                    let base_type = child.get_type().ok_or_else(|| {
-                        InvalidAstSnafu {
-                            message: format!("BaseSpecifier without type: {child:?}"),
-                        }
-                        .build()
+                    let base_type = child
+                        .get_type()
+                        .ok_or_raise_str(|| format!("BaseSpecifier without type: {:?}", child))?;
+                    let base_decl = base_type.get_declaration().ok_or_raise_str(|| {
+                        format!("Record base type without declaration: {:?}", node)
                     })?;
-                    let base_decl = base_type.get_declaration().ok_or_else(|| {
-                        UnsupportedTypeSnafu {
-                            message: format!("Record base type without declaration: {node:?}"),
-                        }
-                        .build()
+                    let base_type_path = TypePath::from_entity(&base_decl).or_raise_str(|| {
+                        format!(
+                            "Failed to get type path for base type {}",
+                            base_type.get_display_name()
+                        )
                     })?;
-                    let path = TypePath::from_entity(&base_decl)?;
-                    base_types.push(path.clone());
-                    let base_type = types.get(path.clone()).ok_or_else(|| {
-                        BaseTypeNotDefinedSnafu {
-                            type_name: display_path.to_string(),
-                            base_type_name: path.to_string(),
-                        }
-                        .build()
+                    base_types.push(base_type_path.clone());
+                    let base_type = types.get(base_type_path.clone()).ok_or_raise_str(|| {
+                        format!("Base type {} of {} is not defined", base_type_path, display_path)
                     })?;
                     is_virtual |= base_type.is_virtual(types);
                     alignment = alignment.max(base_type.alignment(types));
                 }
                 clang::EntityKind::FieldDecl => {
                     let offset = Self::get_offset_of_field(&display_path, &child)?;
-                    let field = Field::new(env, types, &child)?;
+                    let field = Field::new(env, types, &child).or_raise_str(|| {
+                        format!("Failed to parse AST of field in {}", display_path)
+                    })?;
                     alignment = alignment.max(field.kind().alignment(types));
                     fields.push(StructField { field, offset });
                 }
@@ -131,14 +124,13 @@ impl StructDecl {
     fn get_offset_of_field(
         struct_path: &TypePath,
         node: &clang::Entity,
-    ) -> Result<usize, ParseError> {
-        node.get_offset_of_field().map_err(|e| {
-            OffsetofSnafu {
-                field_name: node.get_name().unwrap_or_default(),
-                struct_path: struct_path.clone(),
-                error: e,
-            }
-            .build()
+    ) -> exn::Result<usize, StructDeclError> {
+        node.get_offset_of_field().or_raise_str(|| {
+            format!(
+                "Failed to get field offset of {} in {}",
+                node.get_name().unwrap_or_default(),
+                struct_path
+            )
         })
     }
 

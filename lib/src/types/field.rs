@@ -2,8 +2,10 @@ use std::fmt::Display;
 
 use crate::{
     Env, TypeKind, Types,
-    error::{InvalidAstSnafu, ParseError},
+    error::{ExnExt, OptionExt as _, bail_str, error_type},
 };
+
+error_type!(FieldError);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -16,25 +18,23 @@ pub struct Field {
 }
 
 impl Field {
-    pub fn new(env: &Env, types: &Types, field: &clang::Entity) -> Result<Self, ParseError> {
+    pub fn new(env: &Env, types: &Types, field: &clang::Entity) -> exn::Result<Self, FieldError> {
         if field.get_kind() != clang::EntityKind::FieldDecl {
-            return InvalidAstSnafu { message: format!("Expected FieldDecl, found: {field:?}") }
-                .fail();
+            bail_str!("Expected FieldDecl, found: {:?}", field);
         }
 
         let name = if field.is_anonymous() {
             None
         } else {
-            let name = field.get_name().ok_or_else(|| {
-                InvalidAstSnafu { message: format!("FieldDecl without name: {field:?}") }.build()
-            })?;
+            let name = field
+                .get_name()
+                .ok_or_raise_str(|| format!("FieldDecl without name: {:?}", field))?;
             Some(name)
         };
-        let ty = field.get_type().ok_or_else(|| {
-            InvalidAstSnafu { message: format!("Field without type: {field:?}") }.build()
-        })?;
+        let ty = field.get_type().ok_or_raise_str(|| format!("Field without type: {:?}", field))?;
 
-        let kind = TypeKind::new(env, types, ty)?;
+        let kind = TypeKind::new(env, types, ty)
+            .or_raise_str(|| format!("Failed to get type of field {:?}", name))?;
         let constant = ty.is_const_qualified();
         let volatile = ty.is_volatile_qualified();
         let bit_field_width = field.get_bit_field_width().map(|w| w as u8);

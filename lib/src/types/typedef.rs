@@ -1,6 +1,12 @@
 use std::fmt::Display;
 
-use crate::{Env, TypePath, Types, error::ParseError, types::TypeKind};
+use crate::{
+    Env, TypePath, Types,
+    error::{ExnExt, error_type},
+    types::TypeKind,
+};
+
+error_type!(TypedefError);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -17,13 +23,12 @@ impl Typedef {
         types: &Types,
         path: TypePath,
         underlying_type: clang::Type,
-    ) -> Result<Self, ParseError> {
-        Ok(Typedef {
-            path,
-            underlying_type: TypeKind::new(env, types, underlying_type)?,
-            constant: underlying_type.is_const_qualified(),
-            volatile: underlying_type.is_volatile_qualified(),
-        })
+    ) -> exn::Result<Self, TypedefError> {
+        let constant = underlying_type.is_const_qualified();
+        let volatile = underlying_type.is_volatile_qualified();
+        let underlying_type = TypeKind::new(env, types, underlying_type)
+            .or_raise_str(|| format!("Failed to get underlying type for typedef '{}'", path))?;
+        Ok(Typedef { path, underlying_type, constant, volatile })
     }
 
     pub fn underlying_type(&self) -> &TypeKind {

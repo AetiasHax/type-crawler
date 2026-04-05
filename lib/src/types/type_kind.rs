@@ -2,8 +2,10 @@ use std::fmt::Display;
 
 use crate::{
     EnumDecl, Env, StructDecl, TypePath, Typedef, Types, UnionDecl,
-    error::{AlignofSnafu, ParseError, SizeofSnafu, UnsupportedEntitySnafu, UnsupportedTypeSnafu},
+    error::{ExnExt, OptionExt, ResultExt, bail_str, error_type},
 };
+
+error_type!(TypeKindError);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -62,10 +64,11 @@ pub enum TypeKind {
     Enum(EnumDecl),
     Typedef(Box<Typedef>),
     Named(TypePath),
+    TemplateParam(String),
 }
 
 impl TypeKind {
-    pub fn new(env: &Env, types: &Types, ty: clang::Type) -> Result<Self, ParseError> {
+    pub fn new(env: &Env, types: &Types, ty: clang::Type) -> exn::Result<Self, TypeKindError> {
         let kind = ty.get_kind();
         match kind {
             clang::TypeKind::ULong => Ok(TypeKind::USize { size: env.word_size().bytes() }),
@@ -82,33 +85,28 @@ impl TypeKind {
             clang::TypeKind::Float => Ok(TypeKind::F32),
             clang::TypeKind::Double => Ok(TypeKind::F64),
             clang::TypeKind::LongDouble => Ok(TypeKind::LongDouble {
-                size: ty.get_sizeof().map_err(|e| {
-                    SizeofSnafu { type_name: ty.get_display_name(), error: e }.build()
+                size: ty.get_sizeof().or_raise_str(|| {
+                    format!("Failed to get size of long double type '{}'", ty.get_display_name())
                 })?,
-                alignment: ty.get_alignof().map_err(|e| {
-                    AlignofSnafu { type_name: ty.get_display_name(), error: e }.build()
+                alignment: ty.get_alignof().or_raise_str(|| {
+                    format!("Failed to get alignment of {}", ty.get_display_name())
                 })?,
             }),
             clang::TypeKind::Char16 => Ok(TypeKind::Char16),
             clang::TypeKind::Char32 => Ok(TypeKind::Char32),
             clang::TypeKind::WChar => Ok(TypeKind::WChar {
-                size: ty.get_sizeof().map_err(|e| {
-                    SizeofSnafu { type_name: ty.get_display_name(), error: e }.build()
+                size: ty.get_sizeof().or_raise_str(|| {
+                    format!("Failed to get size of wide char type '{}'", ty.get_display_name())
                 })?,
             }),
             clang::TypeKind::Bool => Ok(TypeKind::Bool),
             clang::TypeKind::Void => Ok(TypeKind::Void),
             clang::TypeKind::LValueReference | clang::TypeKind::Pointer => {
-                let pointee_type = ty.get_pointee_type().ok_or_else(|| {
-                    UnsupportedTypeSnafu {
-                        message: format!("Pointer type without pointee type: {ty:?}"),
-                    }
-                    .build()
-                })?;
+                let pointee_type = ty
+                    .get_pointee_type()
+                    .ok_or_raise_str(|| format!("Pointer type without pointee type: {:?}", ty))?;
                 let inner_type = TypeKind::new(env, types, pointee_type)?;
-                let size = ty.get_sizeof().map_err(|e| {
-                    SizeofSnafu { type_name: ty.get_display_name(), error: e }.build()
-                })?;
+                let size = env.word_size().bytes();
                 let pointee_type = Box::new(inner_type);
 
                 if kind == clang::TypeKind::LValueReference {
@@ -118,91 +116,69 @@ impl TypeKind {
                 }
             }
             clang::TypeKind::MemberPointer => {
-                let pointee_type = ty.get_pointee_type().ok_or_else(|| {
-                    UnsupportedTypeSnafu {
-                        message: format!("MemberPointer type without pointee type: {ty:?}"),
-                    }
-                    .build()
+                let pointee_type = ty.get_pointee_type().ok_or_raise_str(|| {
+                    format!("MemberPointer type without pointee type: {:?}", ty)
                 })?;
                 let inner_type = TypeKind::new(env, types, pointee_type)?;
-                let size = ty.get_sizeof().map_err(|e| {
-                    SizeofSnafu { type_name: ty.get_display_name(), error: e }.build()
+                let size = ty.get_sizeof().or_raise_str(|| {
+                    format!("Failed to get size of member pointer type '{}'", ty.get_display_name())
                 })?;
                 let pointee_type = Box::new(inner_type);
 
                 let record_name = ty
                     .get_class_type()
-                    .ok_or_else(|| {
-                        UnsupportedTypeSnafu {
-                            message: format!("MemberPointer type without class type: {ty:?}"),
-                        }
-                        .build()
-                    })?
+                    .ok_or_raise_str(|| format!("MemberPointer type without class type: {:?}", ty))?
                     .get_display_name();
 
                 Ok(TypeKind::MemberPointer { size, pointee_type, record_name })
             }
             clang::TypeKind::IncompleteArray => {
-                let element_type = ty.get_element_type().ok_or_else(|| {
-                    UnsupportedTypeSnafu {
-                        message: format!("IncompleteArray type without element type: {ty:?}"),
-                    }
-                    .build()
+                let element_type = ty.get_element_type().ok_or_raise_str(|| {
+                    format!("IncompleteArray type without element type: {:?}", ty)
                 })?;
                 let inner_type = TypeKind::new(env, types, element_type)?;
                 Ok(TypeKind::Array { element_type: Box::new(inner_type), size: None })
             }
             clang::TypeKind::ConstantArray => {
-                let element_type = ty.get_element_type().ok_or_else(|| {
-                    UnsupportedTypeSnafu {
-                        message: format!("ConstantArray type without element type: {ty:?}"),
-                    }
-                    .build()
+                let element_type = ty.get_element_type().ok_or_raise_str(|| {
+                    format!("ConstantArray type without element type: {:?}", ty)
                 })?;
-                let size = ty.get_size().ok_or_else(|| {
-                    UnsupportedTypeSnafu { message: format!("ConstantArray without size: {ty:?}") }
-                        .build()
-                })?;
+                let size = ty
+                    .get_size()
+                    .ok_or_raise_str(|| format!("ConstantArray without size: {:?}", ty))?;
                 let inner_type = TypeKind::new(env, types, element_type)?;
                 Ok(TypeKind::Array { element_type: Box::new(inner_type), size: Some(size) })
             }
             clang::TypeKind::FunctionPrototype => {
-                let return_type = ty.get_result_type().ok_or_else(|| {
-                    UnsupportedTypeSnafu {
-                        message: format!("FunctionPrototype without return type: {ty:?}"),
-                    }
-                    .build()
+                let return_type = ty.get_result_type().ok_or_raise_str(|| {
+                    format!("FunctionPrototype without return type: {:?}", ty)
                 })?;
-                let parameters = ty.get_argument_types().ok_or_else(|| {
-                    UnsupportedTypeSnafu {
-                        message: format!("FunctionPrototype without parameters: {ty:?}"),
-                    }
-                    .build()
+                let parameters = ty.get_argument_types().ok_or_raise_str(|| {
+                    format!("FunctionPrototype without parameters: {:?}", ty)
                 })?;
                 let return_type = TypeKind::new(env, types, return_type)?;
                 let parameters = parameters
                     .into_iter()
                     .map(|param| TypeKind::new(env, types, param))
-                    .collect::<Result<Vec<_>, _>>()?;
+                    .collect::<exn::Result<Vec<_>, _>>()?;
                 Ok(TypeKind::Function { return_type: Box::new(return_type), parameters })
             }
             clang::TypeKind::Elaborated => {
-                let elaborated_type = ty.get_elaborated_type().ok_or_else(|| {
-                    UnsupportedTypeSnafu {
-                        message: format!("Elaborated type without type: {ty:?}"),
-                    }
-                    .build()
-                })?;
-                let elaborated_decl = elaborated_type.get_declaration().ok_or_else(|| {
-                    UnsupportedTypeSnafu {
-                        message: format!("Elaborated type without declaration: {ty:?}"),
-                    }
-                    .build()
-                })?;
+                let elaborated_type = ty
+                    .get_elaborated_type()
+                    .ok_or_raise_str(|| format!("Elaborated type without type: {:?}", ty))?;
+                let elaborated_decl = elaborated_type
+                    .get_declaration()
+                    .ok_or_raise_str(|| format!("Elaborated type without declaration: {:?}", ty))?;
                 if elaborated_decl.is_anonymous() {
                     TypeKind::new(env, types, elaborated_type)
                 } else {
-                    let path = TypePath::from_entity(&elaborated_decl)?;
+                    let path = TypePath::from_entity(&elaborated_decl).or_raise_str(|| {
+                        format!(
+                            "Failed to get path to elaborated type {}",
+                            elaborated_type.get_display_name()
+                        )
+                    })?;
                     if path == TypePath::global("bool") {
                         Ok(TypeKind::Bool) // "bool" not defined in C
                     } else {
@@ -211,44 +187,59 @@ impl TypeKind {
                 }
             }
             clang::TypeKind::Record => {
-                let node = ty.get_declaration().ok_or_else(|| {
-                    UnsupportedTypeSnafu {
-                        message: format!("Record type without declaration: {ty:?}"),
-                    }
-                    .build()
-                })?;
+                let node = ty
+                    .get_declaration()
+                    .ok_or_raise_str(|| format!("Record type without declaration: {:?}", ty))?;
                 match node.get_kind() {
                     clang::EntityKind::StructDecl => {
-                        let struct_decl = StructDecl::new(env, types, None, &node)?;
+                        let struct_decl =
+                            StructDecl::new(env, types, None, &node).or_raise_str(|| {
+                                format!(
+                                    "Failed to parse struct AST for record type {}",
+                                    ty.get_display_name()
+                                )
+                            })?;
                         Ok(TypeKind::Struct(struct_decl))
                     }
                     clang::EntityKind::ClassDecl => {
-                        let struct_decl = StructDecl::new(env, types, None, &node)?;
+                        let struct_decl =
+                            StructDecl::new(env, types, None, &node).or_raise_str(|| {
+                                format!(
+                                    "Failed to parse class AST for record type {}",
+                                    ty.get_display_name()
+                                )
+                            })?;
                         Ok(TypeKind::Class(struct_decl))
                     }
                     clang::EntityKind::UnionDecl => {
-                        let union_decl = UnionDecl::new(env, types, None, ty)?;
+                        let union_decl =
+                            UnionDecl::new(env, types, None, ty).or_raise_str(|| {
+                                format!(
+                                    "Failed to parse union AST for record type {}",
+                                    ty.get_display_name()
+                                )
+                            })?;
                         Ok(TypeKind::Union(union_decl))
                     }
-                    _ => UnsupportedEntitySnafu {
-                        at: "struct/union".to_string(),
-                        message: format!(
-                            "Unsupported entity kind in record: {:?}",
-                            node.get_kind()
-                        ),
+                    _ => {
+                        bail_str!("Unsupported entity in struct/union: {:?}", node.get_kind());
                     }
-                    .fail(),
                 }
             }
             clang::TypeKind::Enum => {
-                let decl = ty.get_declaration().ok_or_else(|| {
-                    UnsupportedTypeSnafu {
-                        message: format!("Enum type without declaration: {ty:?}"),
-                    }
-                    .build()
+                let decl = ty
+                    .get_declaration()
+                    .ok_or_raise_str(|| format!("Enum type without declaration: {:?}", ty))?;
+                let path = TypePath::from_entity(&decl).or_raise_str(|| {
+                    format!("Failed to get path to enum type '{}'", ty.get_display_name())
                 })?;
-                let path = TypePath::from_entity(&decl)?;
-                Ok(TypeKind::Enum(EnumDecl::new(Some(path), &decl)?))
+                Ok(TypeKind::Enum(EnumDecl::new(Some(path), &decl).or_raise_str(|| {
+                    format!("Failed to parse AST for enum '{}'", ty.get_display_name())
+                })?))
+            }
+            clang::TypeKind::Unexposed => {
+                let name = ty.get_display_name();
+                Ok(TypeKind::TemplateParam(name))
             }
             _ => {
                 panic!("Unsupported type: {:?} for name: {}", ty.get_kind(), ty.get_display_name())
@@ -290,6 +281,7 @@ impl TypeKind {
             TypeKind::Enum(enum_decl) => enum_decl.size(),
             TypeKind::Typedef(typedef) => typedef.underlying_type().size(types),
             TypeKind::Named(name) => types.get(name.clone()).map(|ty| ty.size(types)).unwrap_or(0),
+            TypeKind::TemplateParam(_) => 0,
         }
     }
 
@@ -321,6 +313,7 @@ impl TypeKind {
             TypeKind::Named(name) => {
                 types.get(name.clone()).map(|ty| ty.alignment(types)).unwrap_or(0)
             }
+            TypeKind::TemplateParam(_) => 0,
         }
     }
 
@@ -440,6 +433,7 @@ impl Display for TypeKind {
             TypeKind::Enum(enum_decl) => write!(f, "enum {enum_decl}"),
             TypeKind::Typedef(typedef) => write!(f, "{typedef}"),
             TypeKind::Named(name) => write!(f, "{name}"),
+            TypeKind::TemplateParam(name) => write!(f, "typename {name}"),
         }
     }
 }

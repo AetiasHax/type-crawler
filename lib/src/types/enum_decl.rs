@@ -2,8 +2,10 @@ use std::fmt::Display;
 
 use crate::{
     TypePath,
-    error::{InvalidAstSnafu, ParseError, SizeofSnafu},
+    error::{OptionExt as _, ResultExt as _, bail_str, error_type},
 };
+
+error_type!(EnumDeclError);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -22,36 +24,29 @@ pub struct EnumConstant {
 }
 
 impl EnumDecl {
-    pub fn new(path: Option<TypePath>, node: &clang::Entity) -> Result<Self, ParseError> {
+    pub fn new(path: Option<TypePath>, node: &clang::Entity) -> exn::Result<Self, EnumDeclError> {
         if node.get_kind() != clang::EntityKind::EnumDecl {
-            return InvalidAstSnafu { message: format!("Expected EnumDecl, found: {node:?}") }
-                .fail();
+            bail_str!("Expected EnumDecl, found: {:?}", node);
         }
 
-        let underlying_type = node.get_enum_underlying_type().ok_or_else(|| {
-            InvalidAstSnafu { message: format!("EnumDecl without underlying type: {node:?}") }
-                .build()
-        })?;
-        let size = underlying_type.get_sizeof().map_err(|e| {
-            SizeofSnafu { type_name: underlying_type.get_display_name(), error: e }.build()
+        let underlying_type = node
+            .get_enum_underlying_type()
+            .ok_or_raise_str(|| format!("EnumDecl without underlying type: {:?}", node))?;
+        let size = underlying_type.get_sizeof().or_raise_str(|| {
+            format!("Failed to get size of type {}", underlying_type.get_display_name())
         })?;
 
         let mut constants = Vec::new();
         for child in node.get_children() {
             if child.get_kind() != clang::EntityKind::EnumConstantDecl {
-                return InvalidAstSnafu {
-                    message: format!("Expected EnumConstantDecl, found: {child:?}"),
-                }
-                .fail();
+                bail_str!("Expected EnumConstantDecl, found: {:?}", child);
             }
-            let name = child.get_name().ok_or_else(|| {
-                { InvalidAstSnafu { message: format!("EnumConstantDecl without name: {child:?}") } }
-                    .build()
-            })?;
-            let (value, _) = child.get_enum_constant_value().ok_or_else(|| {
-                InvalidAstSnafu { message: format!("EnumConstantDecl without value: {child:?}") }
-                    .build()
-            })?;
+            let name = child
+                .get_name()
+                .ok_or_raise_str(|| format!("EnumConstantDecl without name: {:?}", child))?;
+            let (value, _) = child
+                .get_enum_constant_value()
+                .ok_or_raise_str(|| format!("EnumConstantDecl without value: {:?}", child))?;
             constants.push(EnumConstant { name, value });
         }
 

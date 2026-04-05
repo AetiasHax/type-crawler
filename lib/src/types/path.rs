@@ -1,6 +1,8 @@
 use std::{borrow::Cow, fmt::Display};
 
-use crate::error::{ParseError, UnsupportedTypeSnafu};
+use crate::error::{OptionExt as _, error_type};
+
+error_type!(TypePathError);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TypePath {
@@ -17,7 +19,7 @@ impl TypePath {
         Self { name: name.into(), namespaces: Vec::new() }
     }
 
-    pub fn from_entity(entity: &clang::Entity) -> Result<Self, ParseError> {
+    pub fn from_entity(entity: &clang::Entity) -> exn::Result<Self, TypePathError> {
         let mut namespaces = Vec::new();
         let mut current = entity.get_semantic_parent();
         while let Some(parent) = current {
@@ -30,11 +32,8 @@ impl TypePath {
         }
         namespaces.reverse(); // Outermost to innermost
 
-        let name = entity.get_name().ok_or_else(|| {
-            UnsupportedTypeSnafu {
-                message: format!("Elaborated type declaration without name: {entity:?}"),
-            }
-            .build()
+        let name = entity.get_name().ok_or_raise_str(|| {
+            format!("Elaborated type declaration without name: {:?}", entity)
         })?;
 
         Ok(Self { namespaces, name })
