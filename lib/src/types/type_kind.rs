@@ -2,12 +2,12 @@ use std::fmt::Display;
 
 use crate::{
     EnumDecl, Env, StructDecl, TypePath, Typedef, Types, UnionDecl,
-    error::{ExnExt, OptionExt, ResultExt, bail_str, error_type},
+    error::{ExnExt as _, OptionExt as _, ResultExt as _, bail_str, error_type},
 };
 
 error_type!(TypeKindError);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum TypeKind {
     USize {
@@ -65,6 +65,7 @@ pub enum TypeKind {
     Typedef(Box<Typedef>),
     Named(TypePath),
     TemplateParam(String),
+    TemplateClassSpec(StructDecl),
 }
 
 impl TypeKind {
@@ -179,7 +180,28 @@ impl TypeKind {
                             elaborated_type.get_display_name()
                         )
                     })?;
-                    if path == TypePath::global("bool") {
+                    if let Some(template_args) = ty.get_template_argument_types() {
+                        let args = template_args
+                            .iter()
+                            .enumerate()
+                            .map(|(i, arg)| {
+                                let Some(arg) = arg else {
+                                    bail_str!(
+                                        "Template argument at index {} is None for template class {}",
+                                        i,
+                                        path
+                                    );
+                                };
+                                let kind =TypeKind::new(env, types, *arg).or_raise_str(|| format!("Failed to derive type for template argument at index {} for template class {}", i, path))?;
+                                Ok(kind)
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                        let template_class = types
+                            .get_template_class(path.clone())
+                            .ok_or_raise_str(|| format!("Template class not found: {}", path))?;
+                        let specialized = template_class.specialize(env, types, &args).or_raise_str(|| format!("Failed to specialize template class {} with template arguments {:?}", path, args))?;
+                        Ok(TypeKind::TemplateClassSpec(specialized))
+                    } else if path == TypePath::global("bool") {
                         Ok(TypeKind::Bool) // "bool" not defined in C
                     } else {
                         Ok(TypeKind::Named(path))
@@ -282,6 +304,7 @@ impl TypeKind {
             TypeKind::Typedef(typedef) => typedef.underlying_type().size(types),
             TypeKind::Named(name) => types.get(name.clone()).map(|ty| ty.size(types)).unwrap_or(0),
             TypeKind::TemplateParam(_) => 0,
+            TypeKind::TemplateClassSpec(specialized) => specialized.size(),
         }
     }
 
@@ -314,6 +337,7 @@ impl TypeKind {
                 types.get(name.clone()).map(|ty| ty.alignment(types)).unwrap_or(0)
             }
             TypeKind::TemplateParam(_) => 0,
+            TypeKind::TemplateClassSpec(specialized) => specialized.alignment(),
         }
     }
 
@@ -383,6 +407,111 @@ impl TypeKind {
             _ => false,
         }
     }
+
+    pub fn replace_template_parameters<Cb>(
+        &self,
+        types: &Types,
+        get_param_type: Cb,
+    ) -> exn::Result<TypeKind, TypeKindError>
+    where
+        Cb: Fn(&str) -> Option<TypeKind> + Copy,
+    {
+        match self {
+            TypeKind::USize { .. }
+            | TypeKind::SSize { .. }
+            | TypeKind::U64
+            | TypeKind::U32
+            | TypeKind::U16
+            | TypeKind::U8
+            | TypeKind::S64
+            | TypeKind::S32
+            | TypeKind::S16
+            | TypeKind::S8
+            | TypeKind::F32
+            | TypeKind::F64
+            | TypeKind::LongDouble { .. }
+            | TypeKind::Char16
+            | TypeKind::Char32
+            | TypeKind::WChar { .. }
+            | TypeKind::Bool
+            | TypeKind::Void => Ok(self.clone()),
+            TypeKind::Reference { size, referenced_type } => Ok(TypeKind::Reference {
+                size: *size,
+                referenced_type: Box::new(
+                    referenced_type.replace_template_parameters(types, get_param_type)?,
+                ),
+            }),
+            TypeKind::Pointer { size, pointee_type } => Ok(TypeKind::Pointer {
+                size: *size,
+                pointee_type: Box::new(
+                    pointee_type.replace_template_parameters(types, get_param_type)?,
+                ),
+            }),
+            TypeKind::MemberPointer { size, pointee_type, record_name } => {
+                Ok(TypeKind::MemberPointer {
+                    size: *size,
+                    pointee_type: Box::new(
+                        pointee_type.replace_template_parameters(types, get_param_type)?,
+                    ),
+                    record_name: record_name.clone(),
+                })
+            }
+            TypeKind::Array { element_type, size } => Ok(TypeKind::Array {
+                element_type: Box::new(
+                    element_type.replace_template_parameters(types, get_param_type)?,
+                ),
+                size: *size,
+            }),
+            TypeKind::Function { return_type, parameters } => Ok(TypeKind::Function {
+                return_type: Box::new(
+                    return_type.replace_template_parameters(types, get_param_type)?,
+                ),
+                parameters: parameters
+                    .iter()
+                    .map(|param| param.replace_template_parameters(types, get_param_type))
+                    .collect::<Result<Vec<_>, _>>()?,
+            }),
+            TypeKind::Struct(struct_decl) => Ok(TypeKind::Struct(
+                struct_decl
+                    .replace_template_parameters(types, get_param_type)
+                    .or_raise_str(|| "Failed to specialize struct inside template class")?,
+            )),
+            TypeKind::Class(struct_decl) => Ok(TypeKind::Class(
+                struct_decl
+                    .replace_template_parameters(types, get_param_type)
+                    .or_raise_str(|| "Failed to specialize class inside template class")?,
+            )),
+            TypeKind::Union(union_decl) => Ok(TypeKind::Union(
+                union_decl
+                    .replace_template_parameters(types, get_param_type)
+                    .or_raise_str(|| "Failed to specialize union inside template class")?,
+            )),
+            TypeKind::Enum(enum_decl) => Ok(TypeKind::Enum(enum_decl.clone())),
+            TypeKind::Typedef(typedef) => Ok(TypeKind::Typedef(Box::new(
+                typedef
+                    .replace_template_parameters(types, get_param_type)
+                    .or_raise_str(|| "Failed to specialize typedef inside template class")?,
+            ))),
+            TypeKind::Named(type_path) => {
+                let named_type = types
+                    .get(type_path.clone())
+                    .ok_or_raise_str(|| format!("Named type not found: {}", type_path))?;
+                named_type.replace_template_parameters(types, get_param_type)
+            }
+            TypeKind::TemplateParam(name) => {
+                if let Some(ty) = get_param_type(name) {
+                    Ok(ty)
+                } else {
+                    Ok(TypeKind::TemplateParam(name.clone()))
+                }
+            }
+            TypeKind::TemplateClassSpec(specialized) => Ok(TypeKind::TemplateClassSpec(
+                specialized
+                    .replace_template_parameters(types, get_param_type)
+                    .or_raise_str(|| "Failed to specialize template class inside template class")?,
+            )),
+        }
+    }
 }
 
 impl Display for TypeKind {
@@ -434,6 +563,7 @@ impl Display for TypeKind {
             TypeKind::Typedef(typedef) => write!(f, "{typedef}"),
             TypeKind::Named(name) => write!(f, "{name}"),
             TypeKind::TemplateParam(name) => write!(f, "typename {name}"),
+            TypeKind::TemplateClassSpec(specialized) => write!(f, "specialized {specialized}"),
         }
     }
 }

@@ -7,7 +7,7 @@ use crate::{
 
 error_type!(FieldError);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Field {
     pub(crate) name: Option<String>,
@@ -70,6 +70,10 @@ impl Field {
     pub fn size_bits(&self, types: &Types) -> usize {
         self.bit_field_width().map(|w| w as usize).unwrap_or_else(|| self.kind.size(types) * 8)
     }
+
+    pub fn with_kind(&self, kind: TypeKind) -> Self {
+        Self { kind, ..self.clone() }
+    }
 }
 
 impl Display for Field {
@@ -77,7 +81,7 @@ impl Display for Field {
         let name = self.name.as_deref().unwrap_or("<anon>");
         write!(
             f,
-            "{}: {}{}{:?}",
+            "{}: {}{}{}",
             name,
             if self.constant { "const " } else { "" },
             if self.volatile { "volatile " } else { "" },

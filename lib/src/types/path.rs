@@ -1,6 +1,9 @@
 use std::{borrow::Cow, fmt::Display};
 
-use crate::error::{OptionExt as _, error_type};
+use crate::{
+    TypeKind,
+    error::{OptionExt as _, error_type},
+};
 
 error_type!(TypePathError);
 
@@ -8,15 +11,20 @@ error_type!(TypePathError);
 pub struct TypePath {
     namespaces: Vec<String>,
     name: String,
+    template_arguments: Vec<TypeKind>,
 }
 
 impl TypePath {
-    pub fn new(namespaces: Vec<String>, name: impl Into<String>) -> Self {
-        Self { namespaces, name: name.into() }
+    pub fn new(
+        namespaces: Vec<String>,
+        name: impl Into<String>,
+        template_arguments: Vec<TypeKind>,
+    ) -> Self {
+        Self { namespaces, name: name.into(), template_arguments }
     }
 
     pub fn global(name: impl Into<String>) -> Self {
-        Self { name: name.into(), namespaces: Vec::new() }
+        Self { name: name.into(), namespaces: Vec::new(), template_arguments: Vec::new() }
     }
 
     pub fn from_entity(entity: &clang::Entity) -> exn::Result<Self, TypePathError> {
@@ -36,7 +44,8 @@ impl TypePath {
             format!("Elaborated type declaration without name: {:?}", entity)
         })?;
 
-        Ok(Self { namespaces, name })
+        // Template arguments are only ever filled in by `with_template_arguments`
+        Ok(Self { namespaces, name, template_arguments: Vec::new() })
     }
 
     pub fn name(&self) -> &str {
@@ -45,6 +54,10 @@ impl TypePath {
 
     pub fn namespaces(&self) -> &[String] {
         &self.namespaces
+    }
+
+    pub fn with_template_arguments(&self, template_arguments: Vec<TypeKind>) -> Self {
+        Self { namespaces: self.namespaces.clone(), name: self.name.clone(), template_arguments }
     }
 }
 
@@ -60,6 +73,15 @@ impl Display for TypePath {
             write!(f, "{namespace}::")?;
         }
         write!(f, "{}", self.name)?;
+        if !self.template_arguments.is_empty() {
+            write!(f, "<")?;
+            let mut iter = self.template_arguments.iter();
+            write!(f, "{}", iter.next().unwrap())?;
+            for parameter in iter {
+                write!(f, ", {parameter}")?;
+            }
+            write!(f, ">")?;
+        }
         Ok(())
     }
 }

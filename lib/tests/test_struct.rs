@@ -13,7 +13,6 @@ mod tests {
         let TypeKind::Struct(my_struct) = my_struct else {
             panic!("Expected Struct type, found: {my_struct:?}");
         };
-        assert!(!my_struct.is_class());
         assert!(!my_struct.is_virtual());
         assert_eq!(my_struct.size(), 8);
         assert_eq!(my_struct.alignment(), 4);

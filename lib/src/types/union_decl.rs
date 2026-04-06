@@ -1,13 +1,13 @@
 use std::fmt::Display;
 
 use crate::{
-    Env, Field, TypePath, Types,
+    Env, Field, TypeKind, TypePath, Types,
     error::{ExnExt, OptionExt, ResultExt, bail_str, error_type},
 };
 
 error_type!(UnionDeclError);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct UnionDecl {
     pub(crate) path: Option<TypePath>,
@@ -111,6 +111,19 @@ impl UnionDecl {
 
     pub fn get_field(&self, name: &str) -> Option<&Field> {
         self.fields.iter().find(|f| f.name() == Some(name))
+    }
+
+    pub fn replace_template_parameters<Cb>(
+        &self,
+        _types: &Types,
+        _get_param_type: Cb,
+    ) -> exn::Result<UnionDecl, UnionDeclError>
+    where
+        Cb: Fn(&str) -> Option<TypeKind>,
+    {
+        bail_str!(
+            "Template specialization not implemented for template parameters in unions defined inside the template class",
+        );
     }
 }
 

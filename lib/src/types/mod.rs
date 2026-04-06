@@ -134,4 +134,8 @@ impl Types {
     pub fn template_classes(&self) -> impl Iterator<Item = &TemplateClass> {
         self.template_classes.values()
     }
+
+    pub fn get_template_class(&self, path: impl Into<TypePath>) -> Option<&TemplateClass> {
+        self.template_classes.get(&path.into())
+    }
 }

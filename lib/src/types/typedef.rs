@@ -2,13 +2,13 @@ use std::fmt::Display;
 
 use crate::{
     Env, TypePath, Types,
-    error::{ExnExt, error_type},
+    error::{ExnExt, bail_str, error_type},
     types::TypeKind,
 };
 
 error_type!(TypedefError);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Typedef {
     path: TypePath,
@@ -50,6 +50,19 @@ impl Typedef {
 
     pub fn volatile(&self) -> bool {
         self.volatile
+    }
+
+    pub fn replace_template_parameters<Cb>(
+        &self,
+        _types: &Types,
+        _get_param_type: Cb,
+    ) -> exn::Result<Typedef, TypedefError>
+    where
+        Cb: Fn(&str) -> Option<TypeKind>,
+    {
+        bail_str!(
+            "Template specialization not implemented for template parameters in typedefs inside the template class"
+        );
     }
 }
 

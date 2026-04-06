@@ -7,7 +7,7 @@ use crate::{
 
 error_type!(EnumDeclError);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EnumDecl {
     // TODO: this is always Some()?
@@ -16,7 +16,7 @@ pub struct EnumDecl {
     size: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EnumConstant {
     name: String,

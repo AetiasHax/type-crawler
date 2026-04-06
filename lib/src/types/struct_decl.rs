@@ -7,24 +7,23 @@ use crate::{
 
 error_type!(StructDeclError);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StructDecl {
-    path: Option<TypePath>,
-    base_types: Vec<TypePath>,
-    fields: Vec<StructField>,
-    size: usize,
-    alignment: usize,
-    is_class: bool,
-    is_virtual: bool,
+    pub(crate) path: Option<TypePath>,
+    pub(crate) base_types: Vec<TypePath>,
+    pub(crate) fields: Vec<StructField>,
+    pub(crate) size: usize,
+    pub(crate) alignment: usize,
+    pub(crate) is_virtual: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StructField {
     /// Offset in bits
-    offset: usize,
-    field: Field,
+    pub(crate) offset: usize,
+    pub(crate) field: Field,
 }
 
 impl StructDecl {
@@ -116,9 +115,7 @@ impl StructDecl {
             0
         };
 
-        let is_class = node_kind == clang::EntityKind::ClassDecl;
-
-        Ok(Self { path, base_types, fields, size, alignment, is_class, is_virtual })
+        Ok(Self { path, base_types, fields, size, alignment, is_virtual })
     }
 
     fn get_offset_of_field(
@@ -178,12 +175,21 @@ impl StructDecl {
         self.path.as_ref()
     }
 
-    pub fn is_class(&self) -> bool {
-        self.is_class
-    }
-
     pub fn is_virtual(&self) -> bool {
         self.is_virtual
+    }
+
+    pub fn replace_template_parameters<Cb>(
+        &self,
+        _types: &Types,
+        _get_param_type: Cb,
+    ) -> exn::Result<StructDecl, StructDeclError>
+    where
+        Cb: Fn(&str) -> Option<TypeKind>,
+    {
+        bail_str!(
+            "Template specialization not implemented for template parameters in structs defined inside the template class",
+        );
     }
 }
 
@@ -222,6 +228,10 @@ impl StructField {
 
     pub fn size_bits(&self, types: &Types) -> usize {
         self.field.size_bits(types)
+    }
+
+    pub fn with_kind(&self, kind: TypeKind) -> Self {
+        Self { field: self.field.with_kind(kind), ..self.clone() }
     }
 }
 

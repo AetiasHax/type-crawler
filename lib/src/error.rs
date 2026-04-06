@@ -2,8 +2,6 @@ use std::borrow::Cow;
 
 use exn::{Exn, OptionExt as _, ResultExt as _};
 
-use crate::TypePath;
-
 macro_rules! error_type {
     ($name:ident) => {
         #[derive(Debug, derive_more::Display, derive_more::From)]
