@@ -10,8 +10,9 @@ A library which scans for type definitions in a C/C++ codebase.
 use type_crawler::{Env, EnvOptions, TypeCrawler};
 
 let env = Env::new(EnvOptions::default());
-let crawler = TypeCrawler::new(env).unwrap();
-let types = crawler.parse_file("path/to/file.hpp").unwrap();
+let mut crawler = TypeCrawler::new(env).unwrap();
+crawler.parse_file("path/to/file.hpp").unwrap();
+let types = crawler.into_types();
 
 for ty in types.types() {
     println!("{ty}");
