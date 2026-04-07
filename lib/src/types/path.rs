@@ -8,6 +8,7 @@ use crate::{
 error_type!(TypePathError);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TypePath {
     namespaces: Vec<String>,
     name: String,

@@ -8,6 +8,7 @@ use crate::{
 error_type!(TemplateClassError);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TemplateClass {
     path: TypePath,
     parameters: Vec<String>,
