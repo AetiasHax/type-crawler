@@ -74,6 +74,14 @@ impl TypeCrawler {
         &mut self,
         file_path: P,
     ) -> exn::Result<(), TypeCrawlerError> {
+        self.parse_file_with_options(file_path, ParseOptions::default())
+    }
+
+    pub fn parse_file_with_options<P: AsRef<Path>>(
+        &mut self,
+        file_path: P,
+        options: ParseOptions,
+    ) -> exn::Result<(), TypeCrawlerError> {
         let path = file_path.as_ref();
         if !path.exists() {
             bail_str!("File not found: {}", path.display());
@@ -84,7 +92,11 @@ impl TypeCrawler {
         clang_parser.skip_function_bodies(true); // only function declarations needed
         clang_parser.detailed_preprocessing_record(true); // process macros, notably #include
         let mut arguments = self.arguments();
-        if path.extension().is_none() {
+        if options.language != Language::Detect {
+            for arg in options.language.clang_args() {
+                arguments.push(arg.to_string());
+            }
+        } else if path.extension().is_none() {
             // Assume C++ for headers like `vector`, `string`, etc.
             arguments.push("-x".into());
             arguments.push("c++".into());
@@ -169,6 +181,29 @@ impl TypeCrawler {
         }
         if !argument {
             println!();
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct ParseOptions {
+    pub language: Language,
+}
+
+#[derive(Default, PartialEq, Eq, Clone, Copy)]
+pub enum Language {
+    #[default]
+    Detect,
+    C,
+    Cpp,
+}
+
+impl Language {
+    fn clang_args(&self) -> &[&str] {
+        match self {
+            Language::Detect => &[],
+            Language::C => &["-x", "c"],
+            Language::Cpp => &["-x", "c++"],
         }
     }
 }
