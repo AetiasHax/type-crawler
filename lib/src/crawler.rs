@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    fmt::Display,
+    path::{Path, PathBuf},
+};
 
 use clang::Clang;
 
@@ -90,6 +93,12 @@ impl TypeCrawler {
             .parse()
             .or_raise_str(|| format!("Failed to parse file in libclang: {}, ", path.display()))?;
 
+        for diagnostic in unit.get_diagnostics() {
+            if diagnostic.get_severity() >= clang::diagnostic::Severity::Error {
+                bail_str!("{}", ClangError(diagnostic));
+            }
+        }
+
         let root = unit.get_entity();
 
         self.ast_parser
@@ -160,5 +169,46 @@ impl TypeCrawler {
         if !argument {
             println!();
         }
+    }
+}
+
+struct ClangError<'tu>(clang::diagnostic::Diagnostic<'tu>);
+
+impl Display for ClangError<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        display_diagnostic(self.0, f, 0)?;
+
+        fn display_diagnostic(
+            child: clang::diagnostic::Diagnostic<'_>,
+            f: &mut std::fmt::Formatter<'_>,
+            depth: usize,
+        ) -> std::fmt::Result {
+            writeln!(
+                f,
+                "{}{}: {}",
+                " ".repeat(depth * 4),
+                FileLocation(child.get_location().get_file_location()),
+                child.get_text()
+            )?;
+            for child in child.get_children() {
+                display_diagnostic(child, f, depth + 1)?;
+            }
+            Ok(())
+        }
+
+        Ok(())
+    }
+}
+
+struct FileLocation<'tu>(clang::source::Location<'tu>);
+
+impl Display for FileLocation<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let path = self
+            .0
+            .file
+            .map_or("<anonymous file>".to_string(), |f| f.get_path().display().to_string());
+        write!(f, "{}:{}:{}", path, self.0.line, self.0.column)?;
+        Ok(())
     }
 }

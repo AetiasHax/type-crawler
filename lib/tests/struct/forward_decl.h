@@ -1,7 +1,7 @@
-typedef struct ForwardDecl;
+struct ForwardDecl;
 
 typedef struct {
-    ForwardDecl *f;
+    struct ForwardDecl *f;
 } MyStruct;
 
 typedef struct {

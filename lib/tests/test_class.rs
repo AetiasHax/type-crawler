@@ -83,4 +83,10 @@ mod tests {
         assert_eq!(world_struct.fields()[1].offset_bytes(), 16);
         assert_eq!(world_struct.fields()[1].kind(), world_struct.fields()[0].kind());
     }
+
+    #[test]
+    fn test_duplicate() {
+        let mut crawler = TypeCrawler::new(Env::new(EnvOptions::default())).unwrap();
+        assert!(crawler.parse_file("tests/class/duplicate.hpp").is_err());
+    }
 }
