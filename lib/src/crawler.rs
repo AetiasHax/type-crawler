@@ -65,6 +65,7 @@ impl TypeCrawler {
                 self.env.short_enums_clang_arg().to_string(),
                 self.env.signed_char_clang_arg().to_string(),
                 "-nostdinc".to_string(),
+                "-undef".to_string(),
             ])
             .collect()
     }
