@@ -180,48 +180,50 @@ impl TypeKind {
                     .collect::<exn::Result<Vec<_>, _>>()?;
                 Ok(TypeKind::Function { return_type: Box::new(return_type), parameters })
             }
-            clang::TypeKind::Elaborated => {
+            clang::TypeKind::Unexposed | clang::TypeKind::Elaborated => {
                 let elaborated_type = ty
                     .get_elaborated_type()
                     .ok_or_raise_str(|| format!("Elaborated type without type: {:?}", ty))?;
-                let elaborated_decl = elaborated_type
-                    .get_declaration()
-                    .ok_or_raise_str(|| format!("Elaborated type without declaration: {:?}", ty))?;
-                if elaborated_decl.is_anonymous() {
-                    TypeKind::new(env, types, elaborated_type)
-                } else {
-                    let path = TypePath::from_entity(&elaborated_decl).or_raise_str(|| {
-                        format!(
-                            "Failed to get path to elaborated type {}",
-                            elaborated_type.get_display_name()
-                        )
-                    })?;
-                    if let Some(template_args) = ty.get_template_argument_types() {
-                        let args = template_args
-                            .iter()
-                            .enumerate()
-                            .map(|(i, arg)| {
-                                let Some(arg) = arg else {
-                                    bail_str!(
-                                        "Template argument at index {} is None for template class {}",
-                                        i,
-                                        path
-                                    );
-                                };
-                                let kind =TypeKind::new(env, types, *arg).or_raise_str(|| format!("Failed to derive type for template argument at index {} for template class {}", i, path))?;
-                                Ok(kind)
-                            })
-                            .collect::<Result<Vec<_>, _>>()?;
-                        let template_class = types
-                            .get_template_class(path.clone())
-                            .ok_or_raise_str(|| format!("Template class not found: {}", path))?;
-                        let specialized = template_class.specialize(env, types, &args).or_raise_str(|| format!("Failed to specialize template class {} with template arguments {:?}", path, args))?;
-                        Ok(TypeKind::TemplateClassSpec(specialized))
-                    } else if path == TypePath::global("bool") {
-                        Ok(TypeKind::Bool) // "bool" not defined in C
+                if let Some(elaborated_decl) = elaborated_type.get_declaration() {
+                    if elaborated_decl.is_anonymous() {
+                        TypeKind::new(env, types, elaborated_type)
                     } else {
-                        Ok(TypeKind::Named(path))
+                        let path = TypePath::from_entity(&elaborated_decl).or_raise_str(|| {
+                            format!(
+                                "Failed to get path to elaborated type {}",
+                                elaborated_type.get_display_name()
+                            )
+                        })?;
+                        if let Some(template_args) = ty.get_template_argument_types() {
+                            let args = template_args
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(i, arg)| {
+                                        let Some(arg) = arg else {
+                                            bail_str!(
+                                                "Template argument at index {} is None for template class {}",
+                                                i,
+                                                path
+                                            );
+                                        };
+                                        let kind =TypeKind::new(env, types, *arg).or_raise_str(|| format!("Failed to derive type for template argument at index {} for template class {}", i, path))?;
+                                        Ok(kind)
+                                    })
+                                    .collect::<Result<Vec<_>, _>>()?;
+                            let template_class =
+                                types.get_template_class(path.clone()).ok_or_raise_str(|| {
+                                    format!("Template class not found: {}", path)
+                                })?;
+                            let specialized = template_class.specialize(env, types, &args).or_raise_str(|| format!("Failed to specialize template class {} with template arguments {:?}", path, args))?;
+                            Ok(TypeKind::TemplateClassSpec(specialized))
+                        } else if path == TypePath::global("bool") {
+                            Ok(TypeKind::Bool) // "bool" not defined in C
+                        } else {
+                            Ok(TypeKind::Named(path))
+                        }
                     }
+                } else {
+                    Ok(TypeKind::TemplateParam(ty.get_display_name()))
                 }
             }
             clang::TypeKind::Record => {
@@ -274,10 +276,6 @@ impl TypeKind {
                 Ok(TypeKind::Enum(EnumDecl::new(Some(path), &decl).or_raise_str(|| {
                     format!("Failed to parse AST for enum '{}'", ty.get_display_name())
                 })?))
-            }
-            clang::TypeKind::Unexposed => {
-                let name = ty.get_display_name();
-                Ok(TypeKind::TemplateParam(name))
             }
             clang::TypeKind::Typedef => {
                 let decl = ty

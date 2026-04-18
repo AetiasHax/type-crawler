@@ -5,6 +5,9 @@ A library which scans for type definitions in a C/C++ codebase.
 - [Usage](#usage)
 - [Running tests](#running-tests)
 
+## Dependencies
+type-crawler depends on libclang from LLVM 22.1+.
+
 ## Usage
 ```rust
 use type_crawler::{Env, EnvOptions, TypeCrawler};
