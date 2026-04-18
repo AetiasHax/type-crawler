@@ -61,7 +61,8 @@ impl Parser {
             // typedef <underlying_type> <name>;
             clang::EntityKind::TypedefDecl => {
                 if let Some(child) = node.get_child(0)
-                    && child.get_kind() == clang::EntityKind::StructDecl
+                    && (child.get_kind() == clang::EntityKind::StructDecl
+                        || child.get_kind() == clang::EntityKind::EnumDecl)
                 {
                     // Skip "typedef struct" declarations
                     return Ok(());
