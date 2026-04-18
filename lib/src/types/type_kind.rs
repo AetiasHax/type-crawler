@@ -265,7 +265,11 @@ impl TypeKind {
                 Ok(TypeKind::TemplateParam(name))
             }
             _ => {
-                panic!("Unsupported type: {:?} for name: {}", ty.get_kind(), ty.get_display_name())
+                bail_str!(
+                    "Unsupported type: {:?} for name: {}",
+                    ty.get_kind(),
+                    ty.get_display_name()
+                );
             }
         }
     }
