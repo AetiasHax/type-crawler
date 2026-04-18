@@ -70,7 +70,7 @@ impl Display for Typedef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "typedef {}{}{:?} {}",
+            "typedef {}{}{} {}",
             if self.constant { "const " } else { "" },
             if self.volatile { "volatile " } else { "" },
             self.underlying_type,
