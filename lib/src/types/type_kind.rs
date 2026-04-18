@@ -107,7 +107,22 @@ impl TypeKind {
                 let pointee_type = ty
                     .get_pointee_type()
                     .ok_or_raise_str(|| format!("Pointer type without pointee type: {:?}", ty))?;
-                let inner_type = TypeKind::new(env, types, pointee_type)?;
+                let inner_type = match pointee_type.get_kind() {
+                    clang::TypeKind::Record => {
+                        let pointee_node = pointee_type
+                            .get_declaration()
+                            .ok_or_raise_str(|| "Record type with no declaration")?;
+                        let pointee_type_path =
+                            TypePath::from_entity(&pointee_node).or_raise_str(|| {
+                                format!(
+                                    "Failed to get path for pointee record type {}",
+                                    pointee_type.get_display_name()
+                                )
+                            })?;
+                        TypeKind::Named(pointee_type_path)
+                    }
+                    _ => TypeKind::new(env, types, pointee_type)?,
+                };
                 let size = env.word_size().bytes();
                 let pointee_type = Box::new(inner_type);
 
