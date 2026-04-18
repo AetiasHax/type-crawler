@@ -81,6 +81,7 @@ impl TypeKind {
             clang::TypeKind::LongLong => Ok(TypeKind::S64),
             clang::TypeKind::Int => Ok(TypeKind::S32),
             clang::TypeKind::Short => Ok(TypeKind::S16),
+            clang::TypeKind::SChar => Ok(TypeKind::S8),
             clang::TypeKind::CharS => Ok(TypeKind::S8),
             clang::TypeKind::CharU => Ok(TypeKind::U8),
             clang::TypeKind::Float => Ok(TypeKind::F32),
