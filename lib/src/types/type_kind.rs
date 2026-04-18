@@ -264,6 +264,15 @@ impl TypeKind {
                 let name = ty.get_display_name();
                 Ok(TypeKind::TemplateParam(name))
             }
+            clang::TypeKind::Typedef => {
+                let decl = ty
+                    .get_declaration()
+                    .ok_or_raise_str(|| format!("Typedef type without declaration: {:?}", ty))?;
+                let path = TypePath::from_entity(&decl).or_raise_str(|| {
+                    format!("Failed to get path to typedef type '{}'", ty.get_display_name())
+                })?;
+                Ok(TypeKind::Named(path))
+            }
             _ => {
                 bail_str!(
                     "Unsupported type: {:?} for name: {}",
