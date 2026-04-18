@@ -1,6 +1,6 @@
 mod crawler;
 mod env;
-pub mod error;
+pub(crate) mod error;
 mod parser;
 mod types;
 
